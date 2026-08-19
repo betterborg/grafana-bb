@@ -107,11 +107,8 @@ export class LibraryPanelBehavior extends SceneObjectBase<LibraryPanelBehaviorSt
       description: libPanelModel.description,
       titleItems: titleItems,
       $data: createPanelDataProvider(libPanelModel, undefined, isDashboardRoot ? undefined : SceneQueryRunner),
+      $timeRange: timeRange,
     };
-
-    if (timeRange) {
-      vizPanelState.$timeRange = timeRange;
-    }
 
     vizPanel.setState(vizPanelState);
     if (isDashboardRoot) {

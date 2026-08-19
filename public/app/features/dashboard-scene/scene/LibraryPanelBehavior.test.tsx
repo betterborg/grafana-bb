@@ -271,6 +271,13 @@ describe('LibraryPanelBehavior', () => {
 
       expect(getPanelRefreshFor(firstPanel)).toBe(firstController);
       expect(firstController?.state.refresh).toBe('off');
+      expect(firstPanel.state.$timeRange).toBeInstanceOf(PanelTimeRange);
+
+      first.behavior.setPanelFromLibPanel(buildLibraryPanel({ uid: '111', version: 3 }));
+
+      expect(getPanelRefreshFor(firstPanel)).toBe(firstController);
+      expect(firstController?.state.refresh).toBeUndefined();
+      expect(firstPanel.state.$timeRange).toBeUndefined();
     });
 
     it('preserves a dashboard policy without installing interception when the feature is disabled', async () => {
