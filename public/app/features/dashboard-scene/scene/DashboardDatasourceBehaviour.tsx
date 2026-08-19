@@ -164,9 +164,10 @@ export class DashboardDatasourceBehaviour extends SceneObjectBase<DashboardDatas
           // Normal completion or streaming update: re-run immediately.
           // Cancel any pending coalesced re-run so a prior chained forward cannot
           // trigger a redundant second runQueries() after this one.
-          if (this.canRerun(queryRunner, origin)) {
+          const rerunOrigin = strongestOrigin(this.coalescedRerunOrigin, origin);
+          if (this.canRerun(queryRunner, rerunOrigin)) {
             this.cancelCoalescedRerun();
-            this.runQueries(queryRunner, origin);
+            this.runQueries(queryRunner, rerunOrigin);
           }
         } else if (forwardedNewData) {
           // Chained dashboard-DS forward under an unchanged requestId. Coalesce

@@ -1798,6 +1798,26 @@ describe('DashboardDatasourceBehaviour', () => {
       expect(getPanelRefreshFor(context.dependentPanel)?.['timeout']).toBe(deadline);
     });
 
+    it('propagates the recorded global origin when an older concurrent source request completes', () => {
+      const context = buildPolicyTestScene(undefined, 'off');
+      const origins: Array<RefreshOrigin | undefined> = [];
+      const runQueries = jest
+        .spyOn(context.dependentRunner, 'runQueries')
+        .mockImplementation(() => origins.push(getRefreshOrigin()));
+
+      runWithRefreshOrigin(RefreshOrigin.Global, () => context.sourceRunner.runQueries());
+      context.sourceRunner.setState({ data: panelDataFor('global-request', 0, LoadingState.Loading) });
+      runWithRefreshOrigin(RefreshOrigin.Dashboard, () => context.sourceRunner.runQueries());
+      context.sourceRunner.setState({ data: panelDataFor('dashboard-request', 0, LoadingState.Loading) });
+      runQueries.mockClear();
+      origins.length = 0;
+
+      context.sourceRunner.setState({ data: panelDataFor('global-request', 10) });
+
+      expect(runQueries).toHaveBeenCalledTimes(1);
+      expect(origins).toEqual([RefreshOrigin.Global]);
+    });
+
     it('promotes mixed coalesced source origins to global', () => {
       const context = buildPolicyTestScene(undefined, undefined, true, 2);
       const secondSource = context.additionalSources[0];
@@ -1819,6 +1839,34 @@ describe('DashboardDatasourceBehaviour', () => {
       jest.advanceTimersByTime(CHAINED_FORWARD_RERUN_COALESCE_TEST_MS);
       expect(runQueries).toHaveBeenCalledTimes(1);
       expect(origins).toEqual([RefreshOrigin.Global]);
+    });
+
+    it('keeps a pending global origin when an inherited chained panel reruns immediately', () => {
+      const context = buildPolicyChainTestScene();
+      const finalOrigins: Array<RefreshOrigin | undefined> = [];
+      const finalRunQueries = jest
+        .spyOn(context.finalRunner, 'runQueries')
+        .mockImplementation(() => finalOrigins.push(getRefreshOrigin()));
+
+      publishSourceRequest(context.sourceRunner, RefreshOrigin.Global, 'global-request');
+      context.intermediateRunner.cancelQuery();
+      finalRunQueries.mockClear();
+      finalOrigins.length = 0;
+
+      context.sourceTransformer.setState({ data: panelDataFor('global-request', 20) });
+      publishSourceRequest(context.sourceRunner, RefreshOrigin.Dashboard, 'dashboard-request');
+
+      expect(context.intermediateRunner.getPendingLifecycle()).toMatchObject({ origin: RefreshOrigin.Global });
+
+      context.intermediateRunner.setState({
+        data: panelDataFor('intermediate-request', 0, LoadingState.Loading),
+      });
+      context.intermediateRunner.setState({ data: panelDataFor('intermediate-request', 10) });
+
+      expect(finalRunQueries).toHaveBeenCalledTimes(1);
+      expect(finalOrigins).toEqual([RefreshOrigin.Global]);
+      jest.advanceTimersByTime(CHAINED_FORWARD_RERUN_COALESCE_TEST_MS);
+      expect(finalRunQueries).toHaveBeenCalledTimes(1);
     });
 
     it.each([
@@ -1951,6 +1999,61 @@ function buildPolicyTestScene(
     dependentRunner,
     dependentBehavior,
   };
+}
+
+function buildPolicyChainTestScene() {
+  const sourceRunner = new DashboardSceneQueryRunner({
+    datasource: { uid: 'grafana' },
+    queries: [{ refId: 'A' }],
+    runQueriesMode: 'manual',
+  });
+  const sourceTransformer = new SceneDataTransformer({
+    transformations: [{ id: 'transformA', options: {} }],
+    $data: sourceRunner,
+  });
+  const sourcePanel = new VizPanel({
+    title: 'Source',
+    pluginId: 'table',
+    key: 'panel-1',
+    $data: sourceTransformer,
+  });
+
+  const intermediateRunner = new DashboardSceneQueryRunner({
+    datasource: { uid: SHARED_DASHBOARD_QUERY },
+    queries: [{ refId: 'A', panelId: 1 }],
+    runQueriesMode: 'manual',
+    $behaviors: [new DashboardDatasourceBehaviour({})],
+  });
+  const intermediatePanel = new VizPanel({
+    title: 'Inherited intermediate',
+    pluginId: 'table',
+    key: 'panel-2',
+    $data: new SceneDataTransformer({ transformations: [], $data: intermediateRunner }),
+  });
+
+  const finalRunner = new DashboardSceneQueryRunner({
+    datasource: { uid: SHARED_DASHBOARD_QUERY },
+    queries: [{ refId: 'A', panelId: 2 }],
+    runQueriesMode: 'manual',
+    $behaviors: [new DashboardDatasourceBehaviour({})],
+  });
+  const finalPanel = new VizPanel({
+    title: 'Off dependent',
+    pluginId: 'table',
+    key: 'panel-3',
+    $data: new SceneDataTransformer({ transformations: [], $data: finalRunner }),
+  });
+  setPanelRefreshFor(finalPanel, 'off');
+
+  const scene = new DashboardScene({
+    title: 'Policy chain test',
+    uid: 'policy-chain-test',
+    meta: { canEdit: true },
+    body: DefaultGridLayoutManager.fromVizPanels([sourcePanel, intermediatePanel, finalPanel]),
+  });
+  activateFullSceneTree(scene);
+
+  return { sourceRunner, sourceTransformer, intermediateRunner, finalRunner };
 }
 
 function publishSourceRequest(runner: DashboardSceneQueryRunner, origin: RefreshOrigin, requestId: string): void {

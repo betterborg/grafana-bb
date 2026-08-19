@@ -100,6 +100,11 @@ describe('DashboardSceneQueryRunner', () => {
     expect(runner.getPendingLifecycle()?.requestId).toBeUndefined();
     olderResults.next(panelData(LoadingState.Done, olderRequest));
     expect(runner.getPendingLifecycle()).toMatchObject({ id: 2, origin: RefreshOrigin.Panel });
+    expect(runner.getLifecycleForRequest(olderRequest.requestId)).toMatchObject({
+      id: 1,
+      origin: RefreshOrigin.Dashboard,
+      requestId: olderRequest.requestId,
+    });
 
     secondDatasourceResolution.resolve(createDatasource());
     await secondDatasourceResolution.promise;
@@ -111,6 +116,11 @@ describe('DashboardSceneQueryRunner', () => {
 
     newerResults.next(panelData(LoadingState.Done, newerRequest));
     expect(runner.isQueryPending()).toBe(false);
+    expect(runner.getLifecycleForRequest(newerRequest.requestId)).toMatchObject({
+      id: 2,
+      origin: RefreshOrigin.Panel,
+      requestId: newerRequest.requestId,
+    });
   });
 
   it('matches the newer lifecycle when its datasource resolves first', async () => {
