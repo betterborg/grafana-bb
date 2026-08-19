@@ -114,8 +114,22 @@ export class DashboardDatasourceBehaviour extends SceneObjectBase<DashboardDatas
       const libraryPanelBehaviour = getLibraryPanelBehavior(sourcePanel);
 
       if (libraryPanelBehaviour && !libraryPanelBehaviour.state.isLoaded) {
+        let subscribedRunner: SceneQueryRunner | undefined;
         const sub = libraryPanelBehaviour.subscribeToState((newLibPanel) => {
-          this.handleLibPanelStateUpdates(newLibPanel, queryRunner, sourcePanel);
+          const libraryRunner = this.getLoadedLibraryPanelRunner(newLibPanel, sourcePanel);
+          if (!libraryRunner || libraryRunner === subscribedRunner) {
+            return;
+          }
+
+          subscribedRunner = libraryRunner;
+          transformerSubs.push(this.subscribeToSourceData(libraryRunner, queryRunner));
+
+          const requestId = libraryRunner.state.data?.request?.requestId;
+          const waitForPendingLifecycle =
+            libraryRunner instanceof DashboardSceneQueryRunner && libraryRunner.isQueryPending();
+          if (requestId || !waitForPendingLifecycle) {
+            this.runQueriesIfAllowed(queryRunner, this.getSourceRefreshOrigin(libraryRunner, requestId));
+          }
         });
         libraryPanelSubs.push(sub);
         continue; // Don't process transformers until library panel is loaded
@@ -139,63 +153,7 @@ export class DashboardDatasourceBehaviour extends SceneObjectBase<DashboardDatas
         );
       }
 
-      // Only re-run if there's actually new data to process.
-      // We trigger when:
-      // 1. requestId changed (new query completed)
-      // 2. isStreaming (continuous data updates)
-      // 3. a terminal -> terminal (Done/Error) transition: a chained dashboard-DS
-      //    source forwarded fresh data under an unchanged requestId. A cancel
-      //    (Loading -> Done) is excluded since oldState is not terminal.
-      const isTerminal = (state?: LoadingState) => state === LoadingState.Done || state === LoadingState.Error;
-      const onSourceDataChange = (
-        newState: { data?: typeof sourcePanelQueryRunner.state.data },
-        oldState: { data?: typeof sourcePanelQueryRunner.state.data }
-      ) => {
-        const newRequestId = newState.data?.request?.requestId;
-        const oldRequestId = oldState.data?.request?.requestId;
-        const hasNewRequest = newRequestId !== oldRequestId;
-        const isStreaming = newState.data?.state === LoadingState.Streaming;
-        const forwardedNewData = isTerminal(oldState.data?.state) && isTerminal(newState.data?.state);
-        const origin = this.getSourceRefreshOrigin(sourcePanelQueryRunner, newRequestId);
-        if (newState.data === oldState.data) {
-          return;
-        }
-        if (hasNewRequest || isStreaming) {
-          // Normal completion or streaming update: re-run immediately.
-          // Cancel any pending coalesced re-run so a prior chained forward cannot
-          // trigger a redundant second runQueries() after this one.
-          const rerunOrigin = strongestOrigin(this.coalescedRerunOrigin, origin);
-          if (this.canRerun(queryRunner, rerunOrigin)) {
-            this.cancelCoalescedRerun();
-            this.runQueries(queryRunner, rerunOrigin);
-          }
-        } else if (forwardedNewData) {
-          // Chained dashboard-DS forward under an unchanged requestId. Coalesce
-          // bursts of forwards into a single trailing re-run so the consumer
-          // re-processes once against the final forwarded frame instead of once
-          // per forward. runQueries() reads the source's latest data at fire time,
-          // so the coalesced re-run still lands on the freshest frame.
-          this.scheduleCoalescedRerun(queryRunner, origin);
-        }
-      };
-
-      const dataTransformer = sourcePanelQueryRunner.parent;
-
-      if (dataTransformer instanceof SceneDataTransformer && dataTransformer.state.transformations.length) {
-        // In mixed DS scenario we complete the observable and merge data, so on a variable change
-        // the data transformer will emit but there will be no subscription and thus no visual update
-        // on the panel. Similar thing happens when going to edit mode and back, where we unsubscribe and
-        // since we never re-run the query, only reprocess the transformations, the panel will not update.
-        const transformerSub = dataTransformer.subscribeToState(onSourceDataChange);
-        transformerSubs.push(transformerSub);
-      } else {
-        // Source panel has no transformer (or empty transformations). Subscribe to the query runner
-        // so we re-run when the source panel's data updates (e.g. after variable resolution or
-        // time range change). Without this, the dashboard-datasource panel can read stale data
-        // when it runs before the source panels complete and never updates.
-        const queryRunnerSub = sourcePanelQueryRunner.subscribeToState(onSourceDataChange);
-        transformerSubs.push(queryRunnerSub);
-      }
+      transformerSubs.push(this.subscribeToSourceData(sourcePanelQueryRunner, queryRunner));
     }
 
     // If any panel's data changed since last activation, run queries
@@ -268,6 +226,66 @@ export class DashboardDatasourceBehaviour extends SceneObjectBase<DashboardDatas
     return RefreshOrigin.Global;
   }
 
+  private subscribeToSourceData(
+    sourceRunner: SceneQueryRunner,
+    dashboardDsQueryRunner: SceneQueryRunner
+  ): Unsubscribable {
+    // Only re-run if there's actually new data to process.
+    // We trigger when:
+    // 1. requestId changed (new query completed)
+    // 2. isStreaming (continuous data updates)
+    // 3. a terminal -> terminal (Done/Error) transition: a chained dashboard-DS
+    //    source forwarded fresh data under an unchanged requestId. A cancel
+    //    (Loading -> Done) is excluded since oldState is not terminal.
+    const isTerminal = (state?: LoadingState) => state === LoadingState.Done || state === LoadingState.Error;
+    const onSourceDataChange = (
+      newState: { data?: typeof sourceRunner.state.data },
+      oldState: { data?: typeof sourceRunner.state.data }
+    ) => {
+      const newRequestId = newState.data?.request?.requestId;
+      const oldRequestId = oldState.data?.request?.requestId;
+      const hasNewRequest = newRequestId !== oldRequestId;
+      const isStreaming = newState.data?.state === LoadingState.Streaming;
+      const forwardedNewData = isTerminal(oldState.data?.state) && isTerminal(newState.data?.state);
+      const origin = this.getSourceRefreshOrigin(sourceRunner, newRequestId);
+      if (newState.data === oldState.data) {
+        return;
+      }
+      if (hasNewRequest || isStreaming) {
+        // Normal completion or streaming update: re-run immediately.
+        // Cancel any pending coalesced re-run so a prior chained forward cannot
+        // trigger a redundant second runQueries() after this one.
+        const rerunOrigin = strongestOrigin(this.coalescedRerunOrigin, origin);
+        if (this.canRerun(dashboardDsQueryRunner, rerunOrigin)) {
+          this.cancelCoalescedRerun();
+          this.runQueries(dashboardDsQueryRunner, rerunOrigin);
+        }
+      } else if (forwardedNewData) {
+        // Chained dashboard-DS forward under an unchanged requestId. Coalesce
+        // bursts of forwards into a single trailing re-run so the consumer
+        // re-processes once against the final forwarded frame instead of once
+        // per forward. runQueries() reads the source's latest data at fire time,
+        // so the coalesced re-run still lands on the freshest frame.
+        this.scheduleCoalescedRerun(dashboardDsQueryRunner, origin);
+      }
+    };
+
+    const dataTransformer = sourceRunner.parent;
+    if (dataTransformer instanceof SceneDataTransformer && dataTransformer.state.transformations.length) {
+      // In mixed DS scenario we complete the observable and merge data, so on a variable change
+      // the data transformer will emit but there will be no subscription and thus no visual update
+      // on the panel. Similar thing happens when going to edit mode and back, where we unsubscribe and
+      // since we never re-run the query, only reprocess the transformations, the panel will not update.
+      return dataTransformer.subscribeToState(onSourceDataChange);
+    }
+
+    // Source panel has no transformer (or empty transformations). Subscribe to the query runner
+    // so we re-run when the source panel's data updates (e.g. after variable resolution or
+    // time range change). Without this, the dashboard-datasource panel can read stale data
+    // when it runs before the source panels complete and never updates.
+    return sourceRunner.subscribeToState(onSourceDataChange);
+  }
+
   private runQueriesIfAllowed(queryRunner: SceneQueryRunner, origin: RefreshOrigin): void {
     if (this.canRerun(queryRunner, origin)) {
       this.runQueries(queryRunner, origin);
@@ -297,21 +315,20 @@ export class DashboardDatasourceBehaviour extends SceneObjectBase<DashboardDatas
     );
   }
 
-  private handleLibPanelStateUpdates(
+  private getLoadedLibraryPanelRunner(
     newLibPanel: LibraryPanelBehaviorState,
-    dashboardDsQueryRunner: SceneQueryRunner,
     sourcePanel: VizPanel
-  ) {
-    if (newLibPanel && newLibPanel?.isLoaded) {
-      const libPanelQueryRunner = getQueryRunnerFor(sourcePanel);
-
-      if (!(libPanelQueryRunner instanceof SceneQueryRunner)) {
-        throw new Error('Could not find SceneQueryRunner for library panel');
-      }
-      const requestId = libPanelQueryRunner.state.data?.request?.requestId;
-      const origin = this.getSourceRefreshOrigin(libPanelQueryRunner, requestId);
-      this.runQueriesIfAllowed(dashboardDsQueryRunner, origin);
+  ): SceneQueryRunner | undefined {
+    if (!newLibPanel?.isLoaded) {
+      return undefined;
     }
+
+    const libPanelQueryRunner = getQueryRunnerFor(sourcePanel);
+    if (!(libPanelQueryRunner instanceof SceneQueryRunner)) {
+      throw new Error('Could not find SceneQueryRunner for library panel');
+    }
+
+    return libPanelQueryRunner;
   }
 }
 

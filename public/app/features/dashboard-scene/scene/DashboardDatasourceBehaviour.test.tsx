@@ -1943,6 +1943,41 @@ describe('DashboardDatasourceBehaviour', () => {
       expect(origins).toEqual(shouldRun ? [origin] : []);
     });
 
+    it('propagates the initial global lifecycle from a dynamically loaded library runner', () => {
+      const libraryPanelBehavior = new LibraryPanelBehavior({
+        isLoaded: false,
+        uid: 'library-panel',
+        name: 'Library panel',
+        _loadedPanel: undefined,
+      });
+      const context = buildPolicyTestScene(undefined, 'off', false, 1, libraryPanelBehavior);
+      const origins: Array<RefreshOrigin | undefined> = [];
+      const runQueries = jest
+        .spyOn(context.dependentRunner, 'runQueries')
+        .mockImplementation(() => origins.push(getRefreshOrigin()));
+      const replacementRunner = new DashboardSceneQueryRunner({
+        datasource: { uid: 'grafana' },
+        queries: [{ refId: 'A' }],
+      });
+      const replacementTransformer = new SceneDataTransformer({ transformations: [], $data: replacementRunner });
+
+      context.sourcePanel.setState({ $data: replacementTransformer });
+
+      expect(replacementRunner.getPendingLifecycle()).toMatchObject({
+        origin: RefreshOrigin.Global,
+        requestId: undefined,
+      });
+
+      libraryPanelBehavior.setState({ isLoaded: true });
+      expect(runQueries).not.toHaveBeenCalled();
+
+      replacementRunner.setState({ data: panelDataFor('library-request', 0, LoadingState.Loading) });
+      replacementRunner.setState({ data: panelDataFor('library-request', 10) });
+
+      expect(runQueries).toHaveBeenCalledTimes(1);
+      expect(origins).toEqual([RefreshOrigin.Global]);
+    });
+
     it('does not propagate a cancelled automatic source request', () => {
       const context = buildPolicyTestScene(undefined, '5s');
       context.sourceRunner.setState({ data: panelDataFor('same-request', 0, LoadingState.Loading) });
@@ -2016,6 +2051,7 @@ function buildPolicyTestScene(
     deactivate,
     sourceRunner: sources[0].runner,
     sourceTransformer: sources[0].transformer,
+    sourcePanel: sources[0].panel,
     additionalSources: sources.slice(1),
     dependentPanel,
     dependentRunner,
