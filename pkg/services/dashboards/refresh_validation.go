@@ -71,6 +71,27 @@ func ValidatePanelRefreshIntervals(minRefreshInterval string, dashboard map[stri
 	return invalid, err
 }
 
+// ClampPanelRefreshIntervals replaces invalid refresh overrides with the configured floor.
+func ClampPanelRefreshIntervals(minRefreshInterval string, spec map[string]any) (changed int, err error) {
+	if minRefreshInterval == "" {
+		return 0, nil
+	}
+	if _, err := gtime.ParseDuration(minRefreshInterval); err != nil {
+		return 0, fmt.Errorf("parsing min refresh interval %q failed: %w", minRefreshInterval, err)
+	}
+
+	err = VisitPanelRefreshIntervals(spec, func(refresh PanelRefreshInterval) error {
+		if ValidatePanelRefreshInterval(minRefreshInterval, refresh.Value) == nil {
+			return nil
+		}
+
+		refresh.SetValue(minRefreshInterval)
+		changed++
+		return nil
+	})
+	return changed, err
+}
+
 // ValidatePanelRefreshInterval validates one panel refresh override against the configured floor.
 func ValidatePanelRefreshInterval(minRefreshInterval string, refresh string) error {
 	if refresh == "" || strings.EqualFold(refresh, "off") {

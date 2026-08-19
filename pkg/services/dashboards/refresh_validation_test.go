@@ -146,6 +146,112 @@ func TestVisitPanelRefreshIntervals(t *testing.T) {
 	require.Nil(t, invalid)
 }
 
+func TestClampPanelRefreshIntervals(t *testing.T) {
+	tests := []struct {
+		name      string
+		dashboard map[string]any
+		assert    func(t *testing.T, dashboard map[string]any)
+		changed   int
+	}{
+		{
+			name: "classic top-level panels",
+			dashboard: map[string]any{
+				"refresh": "1s",
+				"panels": []any{
+					map[string]any{"id": 1},
+					map[string]any{"id": 2, "refresh": ""},
+					map[string]any{"id": 3, "refresh": "off"},
+					map[string]any{"id": 4, "refresh": "5s"},
+					map[string]any{"id": 5, "refresh": "10s"},
+					map[string]any{"id": 6, "refresh": "1s"},
+					map[string]any{"id": 7, "refresh": "sometimes"},
+				},
+			},
+			changed: 2,
+			assert: func(t *testing.T, dashboard map[string]any) {
+				panels := dashboard["panels"].([]any)
+				require.NotContains(t, panels[0].(map[string]any), "refresh")
+				require.Equal(t, "", panels[1].(map[string]any)["refresh"])
+				require.Equal(t, "off", panels[2].(map[string]any)["refresh"])
+				require.Equal(t, "5s", panels[3].(map[string]any)["refresh"])
+				require.Equal(t, "10s", panels[4].(map[string]any)["refresh"])
+				require.Equal(t, "5s", panels[5].(map[string]any)["refresh"])
+				require.Equal(t, "5s", panels[6].(map[string]any)["refresh"])
+				require.Equal(t, "1s", dashboard["refresh"])
+			},
+		},
+		{
+			name: "classic nested row panels",
+			dashboard: map[string]any{
+				"panels": []any{map[string]any{
+					"id":      1,
+					"refresh": "10s",
+					"panels": []any{
+						map[string]any{"id": 2, "refresh": "2s"},
+						map[string]any{"id": 3, "refresh": "invalid"},
+					},
+				}},
+			},
+			changed: 2,
+			assert: func(t *testing.T, dashboard map[string]any) {
+				row := dashboard["panels"].([]any)[0].(map[string]any)
+				require.Equal(t, "10s", row["refresh"])
+				panels := row["panels"].([]any)
+				require.Equal(t, "5s", panels[0].(map[string]any)["refresh"])
+				require.Equal(t, "5s", panels[1].(map[string]any)["refresh"])
+			},
+		},
+		{
+			name: "v2 panel elements in resource wrapper",
+			dashboard: map[string]any{
+				"spec": map[string]any{
+					"timeSettings": map[string]any{"autoRefresh": "1s"},
+					"elements": map[string]any{
+						"below-floor": v2PanelElementWithRefresh("1s"),
+						"malformed":   v2PanelElementWithRefresh("sometimes"),
+						"at-floor":    v2PanelElementWithRefresh("5s"),
+						"above-floor": v2PanelElementWithRefresh("10s"),
+						"off":         v2PanelElementWithRefresh("off"),
+						"empty":       v2PanelElementWithRefresh(""),
+					},
+				},
+			},
+			changed: 2,
+			assert: func(t *testing.T, dashboard map[string]any) {
+				spec := dashboard["spec"].(map[string]any)
+				elements := spec["elements"].(map[string]any)
+				require.Equal(t, "5s", v2PanelElementRefresh(elements["below-floor"]))
+				require.Equal(t, "5s", v2PanelElementRefresh(elements["malformed"]))
+				require.Equal(t, "5s", v2PanelElementRefresh(elements["at-floor"]))
+				require.Equal(t, "10s", v2PanelElementRefresh(elements["above-floor"]))
+				require.Equal(t, "off", v2PanelElementRefresh(elements["off"]))
+				require.Equal(t, "", v2PanelElementRefresh(elements["empty"]))
+				require.Equal(t, "1s", spec["timeSettings"].(map[string]any)["autoRefresh"])
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			changed, err := ClampPanelRefreshIntervals("5s", tt.dashboard)
+			require.NoError(t, err)
+			require.Equal(t, tt.changed, changed)
+			tt.assert(t, tt.dashboard)
+		})
+	}
+}
+
+func TestClampPanelRefreshIntervalsReturnsInvalidMinimum(t *testing.T) {
+	dashboard := map[string]any{
+		"panels": []any{map[string]any{"id": 1, "refresh": "1s"}},
+	}
+
+	changed, err := ClampPanelRefreshIntervals("invalid", dashboard)
+	require.Error(t, err)
+	require.Zero(t, changed)
+	require.Equal(t, "1s", dashboard["panels"].([]any)[0].(map[string]any)["refresh"])
+}
+
 func TestValidatePanelRefreshIntervalsRejectsNonStringValue(t *testing.T) {
 	invalid, err := ValidatePanelRefreshIntervals("5s", map[string]any{
 		"panels": []any{map[string]any{"id": 1, "refresh": 5}},
@@ -158,16 +264,24 @@ func TestValidatePanelRefreshIntervalsRejectsNonStringValue(t *testing.T) {
 func v2DashboardWithPanelRefresh(key string, refresh string) map[string]any {
 	return map[string]any{
 		"elements": map[string]any{
-			key: map[string]any{
-				"kind": "Panel",
+			key: v2PanelElementWithRefresh(refresh),
+		},
+	}
+}
+
+func v2PanelElementWithRefresh(refresh string) map[string]any {
+	return map[string]any{
+		"kind": "Panel",
+		"spec": map[string]any{
+			"data": map[string]any{
 				"spec": map[string]any{
-					"data": map[string]any{
-						"spec": map[string]any{
-							"queryOptions": map[string]any{"refresh": refresh},
-						},
-					},
+					"queryOptions": map[string]any{"refresh": refresh},
 				},
 			},
 		},
 	}
+}
+
+func v2PanelElementRefresh(element any) string {
+	return nestedMap(element.(map[string]any), "spec", "data", "spec", "queryOptions")["refresh"].(string)
 }

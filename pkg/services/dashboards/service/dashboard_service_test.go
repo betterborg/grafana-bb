@@ -791,7 +791,7 @@ func TestSetDefaultPermissionsWhenSavingFolderForProvisionedDashboards(t *testin
 
 func TestSaveProvisionedDashboard(t *testing.T) {
 	service := &DashboardServiceImpl{
-		cfg: setting.NewCfg(),
+		cfg: &setting.Cfg{MinRefreshInterval: "5s"},
 		folderService: &foldertest.FakeService{
 			ExpectedFolder: &folder.Folder{
 				ID:  0,
@@ -800,7 +800,7 @@ func TestSaveProvisionedDashboard(t *testing.T) {
 		},
 		ac:       actest.FakeAccessControl{ExpectedEvaluate: true},
 		log:      log.NewNopLogger(),
-		features: featuremgmt.WithFeatures(),
+		features: featuremgmt.WithFeatures(featuremgmt.FlagPanelRefreshOverride, false),
 	}
 
 	query := &dashboards.SaveDashboardDTO{
@@ -811,7 +811,12 @@ func TestSaveProvisionedDashboard(t *testing.T) {
 			Title: "testing slugify",
 			Slug:  "testing-slugify",
 			OrgID: 1,
-			Data:  simplejson.NewFromAny(map[string]any{"test": "test", "title": "testing slugify", "uid": "uid"}),
+			Data: simplejson.NewFromAny(map[string]any{
+				"test":   "test",
+				"title":  "testing slugify",
+				"uid":    "uid",
+				"panels": []any{map[string]any{"id": 1, "refresh": "1s"}},
+			}),
 		},
 	}
 	dashboardUnstructured := unstructured.Unstructured{Object: map[string]any{
@@ -828,7 +833,7 @@ func TestSaveProvisionedDashboard(t *testing.T) {
 	ctx, k8sCliMock := setupK8sDashboardTests(service)
 	k8sCliMock.On("Get", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(&dashboardUnstructured, nil)
 	k8sCliMock.On("GetUsersFromMeta", mock.Anything, mock.Anything).Return(map[string]*user.User{}, nil)
-	k8sCliMock.On("Update", mock.Anything, mock.Anything, mock.Anything, metav1.UpdateOptions{
+	k8sCliMock.On("Update", mock.Anything, mock.MatchedBy(dashboardHasPanelRefresh("5s")), mock.Anything, metav1.UpdateOptions{
 		FieldValidation: metav1.FieldValidationIgnore,
 	}).Return(&dashboardUnstructured, nil)
 	k8sCliMock.On("GetNamespace", mock.Anything).Return("default")
@@ -913,7 +918,61 @@ func TestSaveDashboard(t *testing.T) {
 	})
 }
 
-func TestSaveDashboardRejectsInvalidPanelRefreshBeforePersistence(t *testing.T) {
+func TestSaveDashboardClampsInvalidPanelRefreshBeforePersistence(t *testing.T) {
+	service := &DashboardServiceImpl{
+		cfg: &setting.Cfg{MinRefreshInterval: "5s"},
+		folderService: &foldertest.FakeService{
+			ExpectedFolder: &folder.Folder{},
+		},
+		ac:       actest.FakeAccessControl{ExpectedEvaluate: true},
+		log:      log.NewNopLogger(),
+		features: featuremgmt.WithFeatures(featuremgmt.FlagPanelRefreshOverride, false),
+	}
+	dto := dashboardSaveDTOWithPanelRefresh("1s")
+	storedDashboard := dashboardUnstructuredWithPanelRefresh("5s")
+
+	ctx, k8sCliMock := setupK8sDashboardTests(service)
+	k8sCliMock.On("Get", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(nil, nil)
+	k8sCliMock.On("GetUsersFromMeta", mock.Anything, mock.Anything).Return(map[string]*user.User{}, nil)
+	k8sCliMock.On("GetNamespace", mock.Anything).Return("default")
+	k8sCliMock.On("Update", mock.Anything, mock.MatchedBy(dashboardHasPanelRefresh("5s")), mock.Anything, metav1.UpdateOptions{
+		FieldValidation: metav1.FieldValidationIgnore,
+	}).Return(&storedDashboard, nil)
+
+	dashboard, err := service.SaveDashboard(ctx, dto, false)
+	require.NoError(t, err)
+	require.NotNil(t, dashboard)
+	k8sCliMock.AssertExpectations(t)
+}
+
+func TestImportDashboardClampsInvalidPanelRefreshBeforePersistence(t *testing.T) {
+	service := &DashboardServiceImpl{
+		cfg: &setting.Cfg{MinRefreshInterval: "5s"},
+		folderService: &foldertest.FakeService{
+			ExpectedFolder: &folder.Folder{},
+		},
+		ac:       actest.FakeAccessControl{ExpectedEvaluate: true},
+		log:      log.NewNopLogger(),
+		features: featuremgmt.WithFeatures(featuremgmt.FlagPanelRefreshOverride, false),
+	}
+	dto := dashboardSaveDTOWithPanelRefresh("invalid")
+	storedDashboard := dashboardUnstructuredWithPanelRefresh("5s")
+
+	ctx, k8sCliMock := setupK8sDashboardTests(service)
+	k8sCliMock.On("Get", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(nil, nil)
+	k8sCliMock.On("GetUsersFromMeta", mock.Anything, mock.Anything).Return(map[string]*user.User{}, nil)
+	k8sCliMock.On("GetNamespace", mock.Anything).Return("default")
+	k8sCliMock.On("Update", mock.Anything, mock.MatchedBy(dashboardHasPanelRefresh("5s")), mock.Anything, metav1.UpdateOptions{
+		FieldValidation: metav1.FieldValidationIgnore,
+	}).Return(&storedDashboard, nil)
+
+	dashboard, err := service.ImportDashboard(ctx, dto)
+	require.NoError(t, err)
+	require.NotNil(t, dashboard)
+	k8sCliMock.AssertExpectations(t)
+}
+
+func TestBuildSaveDashboardCommandRejectsInvalidPanelRefreshBeforePersistence(t *testing.T) {
 	service := &DashboardServiceImpl{
 		cfg: &setting.Cfg{MinRefreshInterval: "5s"},
 		log: log.New("test.logger"),
@@ -950,11 +1009,50 @@ func TestSaveDashboardRejectsInvalidPanelRefreshBeforePersistence(t *testing.T) 
 	}
 
 	ctx, k8sCliMock := setupK8sDashboardTests(service)
-	_, err := service.SaveDashboard(ctx, query, false)
+	_, err := service.BuildSaveDashboardCommand(ctx, query, false)
 	require.Equal(t, dashboards.ErrDashboardPanelRefreshIntervalInvalid, err)
 	k8sCliMock.AssertNotCalled(t, "Get", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything)
 	k8sCliMock.AssertNotCalled(t, "Update", mock.Anything, mock.Anything, mock.Anything, mock.Anything)
 	require.Equal(t, wantStoredDashboard, &storedDashboard)
+}
+
+func dashboardSaveDTOWithPanelRefresh(refresh string) *dashboards.SaveDashboardDTO {
+	return &dashboards.SaveDashboardDTO{
+		OrgID: 1,
+		User:  &user.SignedInUser{UserID: 1},
+		Dashboard: &dashboards.Dashboard{
+			UID:   "uid",
+			Title: "testing slugify",
+			Data: simplejson.NewFromAny(map[string]any{
+				"uid":     "uid",
+				"title":   "testing slugify",
+				"version": 0,
+				"panels":  []any{map[string]any{"id": 1, "refresh": refresh}},
+			}),
+		},
+	}
+}
+
+func dashboardUnstructuredWithPanelRefresh(refresh string) unstructured.Unstructured {
+	return unstructured.Unstructured{Object: map[string]any{
+		"metadata": map[string]any{"name": "uid"},
+		"spec": map[string]any{
+			"title":   "testing slugify",
+			"version": int64(1),
+			"panels":  []any{map[string]any{"id": int64(1), "refresh": refresh}},
+		},
+	}}
+}
+
+func dashboardHasPanelRefresh(want string) func(*unstructured.Unstructured) bool {
+	return func(dashboard *unstructured.Unstructured) bool {
+		panels, found, err := unstructured.NestedSlice(dashboard.Object, "spec", "panels")
+		if err != nil || !found || len(panels) != 1 {
+			return false
+		}
+		panel, ok := panels[0].(map[string]any)
+		return ok && panel["refresh"] == want
+	}
 }
 
 func TestDeleteDashboard(t *testing.T) {
