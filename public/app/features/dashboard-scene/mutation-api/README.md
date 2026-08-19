@@ -563,6 +563,8 @@ Partial update of an existing panel. Only provided fields are applied. Options a
 
 Same `{ element, layoutItem }` shape as ADD_PANEL and MOVE_PANEL. The `transparent` field in the spec maps to the internal `displayMode` state (`true` -> `"transparent"`, `false` -> `"default"`).
 
+Panel query options are partial updates. For `queryOptions.refresh`, omitting the field preserves the current panel policy, an empty string restores the dashboard default, `"off"` disables refresh for the panel, and a duration such as `"30s"` sets an independent interval.
+
 ### `REMOVE_PANEL`
 
 Remove one or more panels by element name.

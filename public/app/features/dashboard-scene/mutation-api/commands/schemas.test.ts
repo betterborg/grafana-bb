@@ -113,3 +113,34 @@ describe('fieldConfigSchema matcher validation', () => {
     expect(result.success).toBe(false);
   });
 });
+
+describe('panel refresh query options schemas', () => {
+  it('retains refresh in a complete ADD_PANEL spec', () => {
+    const result = payloads.addPanel.safeParse({
+      panel: {
+        spec: {
+          title: 'Test panel',
+          data: { spec: { queries: [], queryOptions: { refresh: '30s' } } },
+          vizConfig: { group: 'timeseries' },
+        },
+      },
+    });
+
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data.panel.spec.data.spec.queryOptions.refresh).toBe('30s');
+    }
+  });
+
+  it('retains refresh in a partial UPDATE_PANEL spec', () => {
+    const result = payloads.updatePanel.safeParse({
+      element: { name: 'panel-1' },
+      panel: { spec: { data: { spec: { queryOptions: { refresh: 'off' } } } } },
+    });
+
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data.panel?.spec.data?.spec.queryOptions?.refresh).toBe('off');
+    }
+  });
+});

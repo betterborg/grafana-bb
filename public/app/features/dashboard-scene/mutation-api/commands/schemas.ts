@@ -447,6 +447,7 @@ const queryOptionsSpecSchema = z
     cacheTimeout: z.string().optional().describe('Cache timeout'),
     hideTimeOverride: z.boolean().optional().describe('Hide time override info in panel header'),
     timeCompare: z.string().optional().describe('Time comparison offset (e.g., "1d", "7d")'),
+    refresh: z.string().optional().describe('Panel refresh policy (empty for default, "off", or an interval)'),
   })
   .describe('Query options for time range overrides and data point limits');
 

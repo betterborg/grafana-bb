@@ -14,6 +14,8 @@ import type { DashboardScene } from '../../scene/DashboardScene';
 import { type AutoGridItem } from '../../scene/layout-auto-grid/AutoGridItem';
 import { AutoGridLayoutManager } from '../../scene/layout-auto-grid/AutoGridLayoutManager';
 import { DefaultGridLayoutManager } from '../../scene/layout-default/DefaultGridLayoutManager';
+import { getPanelRefreshFor } from '../../scene/panel-refresh/PanelRefresh';
+import { PanelRefreshPolicy } from '../../scene/panel-refresh/policy';
 import { PanelTimeRange } from '../../scene/panel-timerange/PanelTimeRange';
 import { getUpdatedHoverHeader } from '../../scene/panel-timerange/utils';
 import { getQueryRunnerFor } from '../../utils/utils';
@@ -151,7 +153,7 @@ function buildAutoGridPanelScene(panels: VizPanel[] = [], elementMap: Record<str
   return scene as unknown as DashboardScene;
 }
 
-function makePanelPayload(title: string, pluginId = 'timeseries', options?: Record<string, unknown>) {
+function makePanelPayload(title: string, pluginId = 'timeseries', options?: Record<string, unknown>, refresh?: string) {
   return {
     kind: 'Panel' as const,
     spec: {
@@ -159,6 +161,7 @@ function makePanelPayload(title: string, pluginId = 'timeseries', options?: Reco
       data: {
         kind: 'QueryGroup' as const,
         spec: {
+          queryOptions: refresh === undefined ? {} : { refresh },
           queries: [
             {
               kind: 'PanelQuery' as const,
@@ -677,6 +680,29 @@ describe('Panel mutation commands', () => {
       expect(gridSpec.width).toBe(8);
       expect(gridSpec.height).toBe(5);
     });
+
+    it('retains panel refresh in the complete panel schema and controller', async () => {
+      const previousToggle = config.featureToggles.panelRefreshOverride;
+      config.featureToggles.panelRefreshOverride = true;
+
+      try {
+        const scene = buildPanelScene();
+        const client = new DashboardMutationClient(scene);
+
+        const result = await client.execute({
+          type: 'ADD_PANEL',
+          payload: { panel: makePanelPayload('Refreshing Panel', 'timeseries', undefined, '30s') },
+        });
+
+        expect(result.success).toBe(true);
+        const panel = scene.state.body.getVizPanels()[0];
+        expect(getPanelRefreshFor(panel)?.state.refresh).toBe('30s');
+        expect(getPanelRefreshFor(panel)?.policy).toBe(PanelRefreshPolicy.Interval);
+        expect(panel.state.$timeRange).toBeInstanceOf(PanelTimeRange);
+      } finally {
+        config.featureToggles.panelRefreshOverride = previousToggle;
+      }
+    });
   });
 
   describe('UPDATE_PANEL', () => {
@@ -993,6 +1019,58 @@ describe('Panel mutation commands', () => {
       const queryRunner = getQueryRunnerFor(body.getVizPanels()[0]);
       expect(queryRunner?.state.minInterval).toBe('30s');
     });
+
+    it.each([
+      ['an interval', '30s', '30s', PanelRefreshPolicy.Interval],
+      ['off', 'off', 'off', PanelRefreshPolicy.Off],
+      ['an empty default', '', undefined, PanelRefreshPolicy.Inherit],
+      ['an omitted value', undefined, '1m', PanelRefreshPolicy.Interval],
+    ] as const)(
+      'applies %s refresh without requiring a query runner',
+      async (_description, refresh, expectedRefresh, expectedPolicy) => {
+        const previousToggle = config.featureToggles.panelRefreshOverride;
+        config.featureToggles.panelRefreshOverride = true;
+
+        try {
+          const scene = buildPanelScene();
+          const client = new DashboardMutationClient(scene);
+          const addResult = await client.execute({
+            type: 'ADD_PANEL',
+            payload: { panel: makePanelPayload('Refresh Panel', 'timeseries', undefined, '1m') },
+          });
+          if (!addResult.success) {
+            throw new Error(`ADD_PANEL failed: ${addResult.error}`);
+          }
+          const elementName = getElementName(addResult.data);
+          const panel = scene.state.body.getVizPanels()[0];
+          const initialController = getPanelRefreshFor(panel);
+          const interceptor = panel.state.$timeRange;
+          panel.setState({ $data: undefined });
+
+          const queryOptions = refresh === undefined ? { maxDataPoints: 500 } : { refresh };
+          const result = await client.execute({
+            type: 'UPDATE_PANEL',
+            payload: {
+              element: { name: elementName },
+              panel: {
+                kind: 'Panel',
+                spec: { data: { kind: 'QueryGroup', spec: { queryOptions } } },
+              },
+            },
+          });
+
+          expect(result.success).toBe(true);
+          expect(getQueryRunnerFor(panel)).toBeUndefined();
+          expect(getPanelRefreshFor(panel)).toBe(initialController);
+          expect(getPanelRefreshFor(panel)?.state.refresh).toBe(expectedRefresh);
+          expect(getPanelRefreshFor(panel)?.policy).toBe(expectedPolicy);
+          expect(panel.state.$timeRange).toBe(interceptor);
+          expect(panel.state.$timeRange).toBeInstanceOf(PanelTimeRange);
+        } finally {
+          config.featureToggles.panelRefreshOverride = previousToggle;
+        }
+      }
+    );
 
     it('creates PanelTimeRange from queryOptions.timeFrom', async () => {
       const scene = buildPanelScene();

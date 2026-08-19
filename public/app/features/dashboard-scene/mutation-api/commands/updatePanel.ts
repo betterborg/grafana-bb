@@ -14,6 +14,7 @@ import { type FieldConfigSource } from '@grafana/data';
 
 import { ConditionalRenderingGroup } from '../../conditional-rendering/group/ConditionalRenderingGroup';
 import { AutoGridItem } from '../../scene/layout-auto-grid/AutoGridItem';
+import { setPanelRefreshFor } from '../../scene/panel-refresh/PanelRefresh';
 import { PanelTimeRange } from '../../scene/panel-timerange/PanelTimeRange';
 import { getUpdatedHoverHeader } from '../../scene/panel-timerange/utils';
 import { getElements, panelQueryKindToSceneQuery } from '../../serialization/layoutSerializers/utils';
@@ -176,37 +177,44 @@ export const updatePanelCommand: MutationCommand<UpdatePanelPayload> = {
             dataPipeline.reprocessTransformations();
           }
 
-          if (dataSpec.queryOptions && queryRunner) {
+          if (dataSpec.queryOptions) {
             const qo = dataSpec.queryOptions;
-            const runnerUpdate: Record<string, unknown> = {};
 
-            if (qo.maxDataPoints !== undefined) {
-              runnerUpdate.maxDataPoints = qo.maxDataPoints;
-            }
-            if (qo.interval !== undefined) {
-              runnerUpdate.minInterval = qo.interval;
-            }
-            if (qo.cacheTimeout !== undefined) {
-              runnerUpdate.cacheTimeout = qo.cacheTimeout;
-            }
-            if (qo.queryCachingTTL !== undefined) {
-              runnerUpdate.queryCachingTTL = qo.queryCachingTTL;
+            if (qo.refresh !== undefined) {
+              setPanelRefreshFor(vizPanel, qo.refresh);
             }
 
-            if (Object.keys(runnerUpdate).length > 0) {
-              queryRunner.setState(runnerUpdate);
-            }
+            if (queryRunner) {
+              const runnerUpdate: Record<string, unknown> = {};
 
-            if (qo.timeFrom !== undefined || qo.timeShift !== undefined) {
-              const timeRange = new PanelTimeRange({
-                timeFrom: qo.timeFrom,
-                timeShift: qo.timeShift,
-                hideTimeOverride: qo.hideTimeOverride,
-              });
-              vizPanel.setState({
-                $timeRange: timeRange,
-                hoverHeader: getUpdatedHoverHeader(vizPanel.state.title, timeRange.state),
-              });
+              if (qo.maxDataPoints !== undefined) {
+                runnerUpdate.maxDataPoints = qo.maxDataPoints;
+              }
+              if (qo.interval !== undefined) {
+                runnerUpdate.minInterval = qo.interval;
+              }
+              if (qo.cacheTimeout !== undefined) {
+                runnerUpdate.cacheTimeout = qo.cacheTimeout;
+              }
+              if (qo.queryCachingTTL !== undefined) {
+                runnerUpdate.queryCachingTTL = qo.queryCachingTTL;
+              }
+
+              if (Object.keys(runnerUpdate).length > 0) {
+                queryRunner.setState(runnerUpdate);
+              }
+
+              if (qo.timeFrom !== undefined || qo.timeShift !== undefined) {
+                const timeRange = new PanelTimeRange({
+                  timeFrom: qo.timeFrom,
+                  timeShift: qo.timeShift,
+                  hideTimeOverride: qo.hideTimeOverride,
+                });
+                vizPanel.setState({
+                  $timeRange: timeRange,
+                  hoverHeader: getUpdatedHoverHeader(vizPanel.state.title, timeRange.state),
+                });
+              }
             }
           }
         }
