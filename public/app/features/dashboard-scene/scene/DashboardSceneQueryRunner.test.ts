@@ -66,6 +66,11 @@ describe('DashboardSceneQueryRunner', () => {
 
     results.next(panelData(LoadingState.Done, request));
     expect(runner.isQueryPending()).toBe(false);
+    expect(runner.getLifecycleForRequest(request.requestId)).toMatchObject({
+      id: 1,
+      origin: RefreshOrigin.Dashboard,
+      requestId: request.requestId,
+    });
   });
 
   it('starts a newer datasource resolution without waiting for the older run', async () => {

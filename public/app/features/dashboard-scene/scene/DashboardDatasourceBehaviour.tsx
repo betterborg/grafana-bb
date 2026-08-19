@@ -15,12 +15,17 @@ import {
   findVizPanelByKey,
   getDashboardSceneFor,
   getLibraryPanelBehavior,
+  getClosestVizPanel,
   getQueryRunnerFor,
   getVizPanelKeyForPanelId,
 } from '../utils/utils';
 
 import { type DashboardScene } from './DashboardScene';
+import { DashboardSceneQueryRunner } from './DashboardSceneQueryRunner';
 import { type LibraryPanelBehaviorState } from './LibraryPanelBehavior';
+import { getPanelRefreshFor } from './panel-refresh/PanelRefresh';
+import { PanelRefreshPolicy } from './panel-refresh/policy';
+import { RefreshOrigin, runWithRefreshOrigin } from './refresh-origin';
 
 interface DashboardDatasourceBehaviourState extends SceneObjectState {}
 
@@ -36,6 +41,7 @@ const CHAINED_FORWARD_RERUN_COALESCE_MS = 100;
 export class DashboardDatasourceBehaviour extends SceneObjectBase<DashboardDatasourceBehaviourState> {
   private prevRequestIds: Map<number, string> = new Map();
   private coalescedRerunTimeout?: ReturnType<typeof setTimeout>;
+  private coalescedRerunOrigin?: RefreshOrigin;
   public constructor(state: DashboardDatasourceBehaviourState) {
     super(state);
 
@@ -88,7 +94,7 @@ export class DashboardDatasourceBehaviour extends SceneObjectBase<DashboardDatas
   ): () => void {
     const libraryPanelSubs: Unsubscribable[] = [];
     const transformerSubs: Unsubscribable[] = [];
-    let shouldRunQueries = false;
+    let reactivationOrigin: RefreshOrigin | undefined;
 
     // Loop through ALL dashboard queries to track each panel
     for (const dashboardQuery of dashboardQueries) {
@@ -127,7 +133,10 @@ export class DashboardDatasourceBehaviour extends SceneObjectBase<DashboardDatas
       const prevRequestId = this.prevRequestIds.get(panelId);
 
       if (prevRequestId && currentRequestId && prevRequestId !== currentRequestId) {
-        shouldRunQueries = true;
+        reactivationOrigin = strongestOrigin(
+          reactivationOrigin,
+          this.getSourceRefreshOrigin(sourcePanelQueryRunner, currentRequestId)
+        );
       }
 
       // Only re-run if there's actually new data to process.
@@ -147,6 +156,7 @@ export class DashboardDatasourceBehaviour extends SceneObjectBase<DashboardDatas
         const hasNewRequest = newRequestId !== oldRequestId;
         const isStreaming = newState.data?.state === LoadingState.Streaming;
         const forwardedNewData = isTerminal(oldState.data?.state) && isTerminal(newState.data?.state);
+        const origin = this.getSourceRefreshOrigin(sourcePanelQueryRunner, newRequestId);
         if (newState.data === oldState.data) {
           return;
         }
@@ -154,15 +164,17 @@ export class DashboardDatasourceBehaviour extends SceneObjectBase<DashboardDatas
           // Normal completion or streaming update: re-run immediately.
           // Cancel any pending coalesced re-run so a prior chained forward cannot
           // trigger a redundant second runQueries() after this one.
-          this.cancelCoalescedRerun();
-          queryRunner.runQueries();
+          if (this.canRerun(queryRunner, origin)) {
+            this.cancelCoalescedRerun();
+            this.runQueries(queryRunner, origin);
+          }
         } else if (forwardedNewData) {
           // Chained dashboard-DS forward under an unchanged requestId. Coalesce
           // bursts of forwards into a single trailing re-run so the consumer
           // re-processes once against the final forwarded frame instead of once
           // per forward. runQueries() reads the source's latest data at fire time,
           // so the coalesced re-run still lands on the freshest frame.
-          this.scheduleCoalescedRerun(queryRunner);
+          this.scheduleCoalescedRerun(queryRunner, origin);
         }
       };
 
@@ -186,8 +198,8 @@ export class DashboardDatasourceBehaviour extends SceneObjectBase<DashboardDatas
     }
 
     // If any panel's data changed since last activation, run queries
-    if (shouldRunQueries) {
-      queryRunner.runQueries();
+    if (reactivationOrigin !== undefined) {
+      this.runQueriesIfAllowed(queryRunner, reactivationOrigin);
     }
 
     // Return cleanup function that unsubscribes from ALL subscriptions
@@ -227,14 +239,50 @@ export class DashboardDatasourceBehaviour extends SceneObjectBase<DashboardDatas
       clearTimeout(this.coalescedRerunTimeout);
       this.coalescedRerunTimeout = undefined;
     }
+    this.coalescedRerunOrigin = undefined;
   }
 
-  private scheduleCoalescedRerun(queryRunner: SceneQueryRunner) {
-    this.cancelCoalescedRerun();
+  private scheduleCoalescedRerun(queryRunner: SceneQueryRunner, origin: RefreshOrigin) {
+    if (!this.canRerun(queryRunner, origin)) {
+      return;
+    }
+
+    if (this.coalescedRerunTimeout !== undefined) {
+      clearTimeout(this.coalescedRerunTimeout);
+    }
+    this.coalescedRerunOrigin = strongestOrigin(this.coalescedRerunOrigin, origin);
     this.coalescedRerunTimeout = setTimeout(() => {
+      const coalescedOrigin = this.coalescedRerunOrigin ?? RefreshOrigin.Global;
       this.coalescedRerunTimeout = undefined;
-      queryRunner.runQueries();
+      this.coalescedRerunOrigin = undefined;
+      this.runQueriesIfAllowed(queryRunner, coalescedOrigin);
     }, CHAINED_FORWARD_RERUN_COALESCE_MS);
+  }
+
+  private getSourceRefreshOrigin(sourceRunner: SceneQueryRunner, requestId: string | undefined): RefreshOrigin {
+    if (sourceRunner instanceof DashboardSceneQueryRunner) {
+      return sourceRunner.getLifecycleForRequest(requestId)?.origin ?? RefreshOrigin.Dashboard;
+    }
+
+    return RefreshOrigin.Global;
+  }
+
+  private runQueriesIfAllowed(queryRunner: SceneQueryRunner, origin: RefreshOrigin): void {
+    if (this.canRerun(queryRunner, origin)) {
+      this.runQueries(queryRunner, origin);
+    }
+  }
+
+  private runQueries(queryRunner: SceneQueryRunner, origin: RefreshOrigin): void {
+    runWithRefreshOrigin(origin, () => queryRunner.runQueries());
+  }
+
+  private canRerun(queryRunner: SceneQueryRunner, origin: RefreshOrigin): boolean {
+    const panel = getClosestVizPanel(queryRunner);
+    const policy = panel
+      ? (getPanelRefreshFor(panel)?.policy ?? PanelRefreshPolicy.Inherit)
+      : PanelRefreshPolicy.Inherit;
+    return policy === PanelRefreshPolicy.Inherit || origin === RefreshOrigin.Global;
   }
 
   private containsDashboardDSQueries(queryRunner: SceneQueryRunner): boolean {
@@ -259,7 +307,13 @@ export class DashboardDatasourceBehaviour extends SceneObjectBase<DashboardDatas
       if (!(libPanelQueryRunner instanceof SceneQueryRunner)) {
         throw new Error('Could not find SceneQueryRunner for library panel');
       }
-      dashboardDsQueryRunner.runQueries();
+      const requestId = libPanelQueryRunner.state.data?.request?.requestId;
+      const origin = this.getSourceRefreshOrigin(libPanelQueryRunner, requestId);
+      this.runQueriesIfAllowed(dashboardDsQueryRunner, origin);
     }
   }
+}
+
+function strongestOrigin(current: RefreshOrigin | undefined, next: RefreshOrigin): RefreshOrigin {
+  return current === RefreshOrigin.Global || next === RefreshOrigin.Global ? RefreshOrigin.Global : next;
 }

@@ -11,7 +11,7 @@ import {
   type PanelData,
 } from '@grafana/data';
 import { getPanelPlugin } from '@grafana/data/test';
-import { setPluginImportUtils } from '@grafana/runtime';
+import { config, setPluginImportUtils } from '@grafana/runtime';
 import { SceneDataTransformer, SceneFlexLayout, SceneQueryRunner, VizPanel } from '@grafana/scenes';
 import { SHARED_DASHBOARD_QUERY, DASHBOARD_DATASOURCE_PLUGIN_ID } from 'app/plugins/datasource/dashboard/constants';
 import { MIXED_DATASOURCE_NAME } from 'app/plugins/datasource/mixed/MixedDataSource';
@@ -20,8 +20,11 @@ import { activateFullSceneTree } from '../utils/test-utils';
 
 import { DashboardDatasourceBehaviour } from './DashboardDatasourceBehaviour';
 import { DashboardScene } from './DashboardScene';
+import { DashboardSceneQueryRunner } from './DashboardSceneQueryRunner';
 import { LibraryPanelBehavior } from './LibraryPanelBehavior';
 import { DefaultGridLayoutManager } from './layout-default/DefaultGridLayoutManager';
+import { getPanelRefreshFor, setPanelRefreshFor } from './panel-refresh/PanelRefresh';
+import { getRefreshOrigin, RefreshOrigin, runWithRefreshOrigin } from './refresh-origin';
 
 const grafanaDs = {
   id: 1,
@@ -1716,7 +1719,254 @@ describe('DashboardDatasourceBehaviour', () => {
       expect(spy).not.toHaveBeenCalled();
     });
   });
+
+  describe('panel refresh policies', () => {
+    const originalFeatureToggle = config.featureToggles.panelRefreshOverride;
+
+    beforeEach(() => {
+      jest.useFakeTimers();
+      config.featureToggles.panelRefreshOverride = true;
+      jest.spyOn(SceneQueryRunner.prototype, 'runQueries').mockImplementation();
+    });
+
+    afterEach(() => {
+      jest.useRealTimers();
+      jest.restoreAllMocks();
+      config.featureToggles.panelRefreshOverride = originalFeatureToggle;
+    });
+
+    it.each([
+      ['inherited source dashboard work', undefined, RefreshOrigin.Dashboard, undefined, true],
+      ['interval source panel work', '5s', RefreshOrigin.Panel, undefined, true],
+      ['Off source global work', 'off', RefreshOrigin.Global, undefined, true],
+      ['dashboard work for an interval dependent', undefined, RefreshOrigin.Dashboard, '5s', false],
+      ['panel work for an interval dependent', '5s', RefreshOrigin.Panel, '5s', false],
+      ['global work for an interval dependent', 'off', RefreshOrigin.Global, '5s', true],
+      ['dashboard work for an Off dependent', undefined, RefreshOrigin.Dashboard, 'off', false],
+      ['global work for an Off dependent', 'off', RefreshOrigin.Global, 'off', true],
+    ])('filters %s', (_name, sourceRefresh, sourceOrigin, dependentRefresh, shouldRun) => {
+      const context = buildPolicyTestScene(sourceRefresh, dependentRefresh);
+      const origins: Array<RefreshOrigin | undefined> = [];
+      const runQueries = jest
+        .spyOn(context.dependentRunner, 'runQueries')
+        .mockImplementation(() => origins.push(getRefreshOrigin()));
+      const deadline = getPanelRefreshFor(context.dependentPanel)?.['timeout'];
+
+      publishSourceRequest(context.sourceRunner, sourceOrigin, 'source-request');
+
+      expect(runQueries).toHaveBeenCalledTimes(shouldRun ? 1 : 0);
+      expect(origins).toEqual(shouldRun ? [sourceOrigin] : []);
+      if (!shouldRun && dependentRefresh === '5s') {
+        expect(getPanelRefreshFor(context.dependentPanel)?.['timeout']).toBe(deadline);
+      }
+    });
+
+    it('uses a completed transformed source lifecycle to filter and propagate its origin', () => {
+      const context = buildPolicyTestScene(undefined, '5s', true);
+      const origins: Array<RefreshOrigin | undefined> = [];
+      const runQueries = jest
+        .spyOn(context.dependentRunner, 'runQueries')
+        .mockImplementation(() => origins.push(getRefreshOrigin()));
+      const deadline = getPanelRefreshFor(context.dependentPanel)?.['timeout'];
+
+      publishSourceRequest(context.sourceRunner, RefreshOrigin.Dashboard, 'automatic-request');
+      runQueries.mockClear();
+      context.sourceTransformer.setState({ data: panelDataFor('automatic-request', 10) });
+      jest.advanceTimersByTime(CHAINED_FORWARD_RERUN_COALESCE_TEST_MS);
+
+      expect(runQueries).not.toHaveBeenCalled();
+      expect(getPanelRefreshFor(context.dependentPanel)?.['timeout']).toBe(deadline);
+
+      publishSourceRequest(context.sourceRunner, RefreshOrigin.Global, 'global-request');
+      runQueries.mockClear();
+      origins.length = 0;
+      context.sourceTransformer.setState({ data: panelDataFor('global-request', 20) });
+      jest.advanceTimersByTime(CHAINED_FORWARD_RERUN_COALESCE_TEST_MS);
+
+      expect(runQueries).toHaveBeenCalledTimes(1);
+      expect(origins).toEqual([RefreshOrigin.Global]);
+    });
+
+    it('does not treat unmatched Dashboard runner data as global source work', () => {
+      const context = buildPolicyTestScene(undefined, '5s');
+      const runQueries = jest.spyOn(context.dependentRunner, 'runQueries').mockImplementation();
+      const deadline = getPanelRefreshFor(context.dependentPanel)?.['timeout'];
+
+      context.sourceRunner.setState({ data: panelDataFor('unmatched-request', 10) });
+
+      expect(runQueries).not.toHaveBeenCalled();
+      expect(getPanelRefreshFor(context.dependentPanel)?.['timeout']).toBe(deadline);
+    });
+
+    it('promotes mixed coalesced source origins to global', () => {
+      const context = buildPolicyTestScene(undefined, undefined, true, 2);
+      const secondSource = context.additionalSources[0];
+      const origins: Array<RefreshOrigin | undefined> = [];
+      const runQueries = jest
+        .spyOn(context.dependentRunner, 'runQueries')
+        .mockImplementation(() => origins.push(getRefreshOrigin()));
+
+      publishSourceRequest(context.sourceRunner, RefreshOrigin.Dashboard, 'dashboard-request');
+      publishSourceRequest(secondSource.runner, RefreshOrigin.Global, 'global-request');
+      jest.runOnlyPendingTimers();
+      runQueries.mockClear();
+      origins.length = 0;
+
+      context.sourceTransformer.setState({ data: panelDataFor('dashboard-request', 20) });
+      secondSource.transformer.setState({ data: panelDataFor('global-request', 20) });
+
+      expect(runQueries).not.toHaveBeenCalled();
+      jest.advanceTimersByTime(CHAINED_FORWARD_RERUN_COALESCE_TEST_MS);
+      expect(runQueries).toHaveBeenCalledTimes(1);
+      expect(origins).toEqual([RefreshOrigin.Global]);
+    });
+
+    it.each([
+      [RefreshOrigin.Dashboard, false],
+      [RefreshOrigin.Global, true],
+    ])('filters %s source work completed while the scene is inactive', (origin, shouldRun) => {
+      const context = buildPolicyTestScene(undefined, 'off');
+      publishSourceRequest(context.sourceRunner, RefreshOrigin.Global, 'initial-request');
+      const origins: Array<RefreshOrigin | undefined> = [];
+      const runQueries = jest
+        .spyOn(context.dependentRunner, 'runQueries')
+        .mockImplementation(() => origins.push(getRefreshOrigin()));
+      runQueries.mockClear();
+      origins.length = 0;
+
+      context.deactivate();
+      runWithRefreshOrigin(origin, () => context.sourceRunner.runQueries());
+      const lifecycle = Reflect.get(context.sourceRunner, 'pendingLifecycle');
+      lifecycle.requestId = 'inactive-request';
+      context.sourceRunner.setState({ data: panelDataFor('inactive-request', 0, LoadingState.Loading) });
+      context.sourceRunner.setState({ data: panelDataFor('inactive-request', 10) });
+      expect(context.sourceRunner.getLifecycleForRequest('inactive-request')?.origin).toBe(origin);
+      runQueries.mockClear();
+      origins.length = 0;
+      context.dependentBehavior.activate();
+
+      expect(origins.filter((value) => value !== undefined)).toEqual(shouldRun ? [origin] : []);
+    });
+
+    it.each([
+      [RefreshOrigin.Dashboard, false],
+      [RefreshOrigin.Global, true],
+    ])('filters %s source work when a library panel finishes loading', (origin, shouldRun) => {
+      const libraryPanelBehavior = new LibraryPanelBehavior({
+        isLoaded: false,
+        uid: 'library-panel',
+        name: 'Library panel',
+        _loadedPanel: undefined,
+      });
+      const context = buildPolicyTestScene(undefined, 'off', false, 1, libraryPanelBehavior);
+      const origins: Array<RefreshOrigin | undefined> = [];
+      const runQueries = jest
+        .spyOn(context.dependentRunner, 'runQueries')
+        .mockImplementation(() => origins.push(getRefreshOrigin()));
+
+      publishSourceRequest(context.sourceRunner, origin, 'library-request');
+      runQueries.mockClear();
+      origins.length = 0;
+      libraryPanelBehavior.setState({ isLoaded: true });
+
+      expect(runQueries).toHaveBeenCalledTimes(shouldRun ? 1 : 0);
+      expect(origins).toEqual(shouldRun ? [origin] : []);
+    });
+
+    it('does not propagate a cancelled automatic source request', () => {
+      const context = buildPolicyTestScene(undefined, '5s');
+      context.sourceRunner.setState({ data: panelDataFor('same-request', 0, LoadingState.Loading) });
+      const runQueries = jest.spyOn(context.dependentRunner, 'runQueries').mockImplementation();
+      runQueries.mockClear();
+
+      runWithRefreshOrigin(RefreshOrigin.Dashboard, () => context.sourceRunner.runQueries());
+      context.sourceRunner.setState({ data: panelDataFor('same-request', 0, LoadingState.Done) });
+
+      jest.advanceTimersByTime(CHAINED_FORWARD_RERUN_COALESCE_TEST_MS);
+      expect(runQueries).not.toHaveBeenCalled();
+    });
+  });
 });
+
+const CHAINED_FORWARD_RERUN_COALESCE_TEST_MS = 100;
+
+function buildPolicyTestScene(
+  sourceRefresh?: string,
+  dependentRefresh?: string,
+  transformed = false,
+  sourceCount = 1,
+  libraryPanelBehavior?: LibraryPanelBehavior
+) {
+  const sources = Array.from({ length: sourceCount }, (_, index) => {
+    const runner = new DashboardSceneQueryRunner({
+      datasource: { uid: 'grafana' },
+      queries: [{ refId: 'A' }],
+      runQueriesMode: 'manual',
+    });
+    const transformer = new SceneDataTransformer({
+      transformations: transformed ? [{ id: 'transformA', options: {} }] : [],
+      $data: runner,
+    });
+    const panel = new VizPanel({
+      title: `Source ${index + 1}`,
+      pluginId: 'table',
+      key: `panel-${index + 1}`,
+      $data: transformer,
+      $behaviors: index === 0 && libraryPanelBehavior ? [libraryPanelBehavior] : [],
+    });
+    setPanelRefreshFor(panel, sourceRefresh);
+    return { panel, runner, transformer };
+  });
+
+  const dependentBehavior = new DashboardDatasourceBehaviour({});
+  const dependentRunner = new DashboardSceneQueryRunner({
+    datasource: { uid: SHARED_DASHBOARD_QUERY },
+    queries: sources.map((_, index) => ({ refId: String.fromCharCode(65 + index), panelId: index + 1 })),
+    runQueriesMode: 'manual',
+    $behaviors: [dependentBehavior],
+  });
+  const dependentPanel = new VizPanel({
+    title: 'Dependent',
+    pluginId: 'table',
+    key: `panel-${sourceCount + 1}`,
+    $data: new SceneDataTransformer({ transformations: [], $data: dependentRunner }),
+  });
+  setPanelRefreshFor(dependentPanel, dependentRefresh);
+
+  const scene = new DashboardScene({
+    title: 'Policy test',
+    uid: 'policy-test',
+    meta: { canEdit: true },
+    body: DefaultGridLayoutManager.fromVizPanels([...sources.map((source) => source.panel), dependentPanel]),
+  });
+  const deactivate = activateFullSceneTree(scene);
+
+  return {
+    scene,
+    deactivate,
+    sourceRunner: sources[0].runner,
+    sourceTransformer: sources[0].transformer,
+    additionalSources: sources.slice(1),
+    dependentPanel,
+    dependentRunner,
+    dependentBehavior,
+  };
+}
+
+function publishSourceRequest(runner: DashboardSceneQueryRunner, origin: RefreshOrigin, requestId: string): void {
+  runWithRefreshOrigin(origin, () => runner.runQueries());
+  runner.setState({ data: panelDataFor(requestId, 0, LoadingState.Loading) });
+  runner.setState({ data: panelDataFor(requestId, 10) });
+}
+
+function panelDataFor(requestId: string, length: number, state = LoadingState.Done): PanelData {
+  return {
+    state,
+    series: [{ fields: [], length }],
+    timeRange: getDefaultTimeRange(),
+    request: { requestId } as DataQueryRequest,
+  };
+}
 
 async function buildTestScene() {
   const sourcePanel = new VizPanel({
