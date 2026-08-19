@@ -193,6 +193,29 @@ describe('DashboardSceneQueryRunner', () => {
     expect(consoleError).toHaveBeenCalledWith('PanelQueryRunner Error', expect.any(Error));
   });
 
+  it('settles a synchronous query setup error after assigning the request ID', async () => {
+    const consoleError = jest.spyOn(console, 'error').mockImplementation();
+    getDataSourceMock.mockResolvedValue(createDatasource());
+    runRequestMock.mockImplementation(() => {
+      throw new Error('Query setup failed');
+    });
+    const previousRequest = request('previous-request');
+    const runner = buildRunner({ data: panelData(LoadingState.Done, previousRequest) });
+
+    runner.runQueries();
+    expect(runner.isQueryPending()).toBe(true);
+
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(runRequestMock).toHaveBeenCalledTimes(1);
+    expect(runner.state.data).toMatchObject({
+      state: LoadingState.Error,
+      request: { requestId: previousRequest.requestId },
+    });
+    expect(runner.isQueryPending()).toBe(false);
+    expect(consoleError).toHaveBeenCalledWith('PanelQueryRunner Error', expect.any(Error));
+  });
+
   it('ignores a terminal result from the previous request and only settles the matching lifecycle', () => {
     jest.spyOn(SceneQueryRunner.prototype, 'runQueries').mockImplementation(() => {});
     const runner = new DashboardSceneQueryRunner({

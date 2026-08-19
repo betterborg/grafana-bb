@@ -19,6 +19,7 @@ export interface DashboardQueryLifecycle {
 
 interface PendingDashboardQueryLifecycle extends DashboardQueryLifecycle {
   previousRequestId?: string;
+  querySubscribed?: boolean;
 }
 
 interface CapturedRefreshOrigin {
@@ -36,6 +37,7 @@ export class DashboardSceneQueryRunner extends SceneQueryRunner {
   private nextRunLifecycle?: PendingDashboardQueryLifecycle;
   private activePreparations = new Set<number>();
   private lifecycleByTimeRange = new WeakMap<SceneTimeRangeLike, PendingDashboardQueryLifecycle>();
+  private querySetupLifecycle?: PendingDashboardQueryLifecycle;
   private refreshOriginTimeRange?: SceneTimeRangeLike;
   private refreshOriginSubscription?: Unsubscribable;
   private capturedRefreshOrigins: CapturedRefreshOrigin[] = [];
@@ -53,12 +55,26 @@ export class DashboardSceneQueryRunner extends SceneQueryRunner {
     );
     const basePrepareRequests: PrepareRequests = Reflect.get(this, 'prepareRequests').bind(this);
     Reflect.set(this, 'prepareRequests', (timeRange: SceneTimeRangeLike, datasource: DataSourceApi) => {
+      this.querySetupLifecycle = this.lifecycleByTimeRange.get(timeRange);
       const requests = basePrepareRequests(timeRange, datasource);
-      const lifecycle = this.lifecycleByTimeRange.get(timeRange);
+      const lifecycle = this.querySetupLifecycle;
       if (lifecycle) {
         lifecycle.requestId = requests.primary.requestId;
       }
       return requests;
+    });
+    // A setup error is caught by the base runner and publishes the previous request, so observing subscription
+    // assignment is the only lifecycle-local evidence that a prepared request actually started.
+    let querySubscription: Unsubscribable | undefined = Reflect.get(this, '_querySub');
+    Object.defineProperty(this, '_querySub', {
+      configurable: true,
+      get: () => querySubscription,
+      set: (subscription: Unsubscribable | undefined) => {
+        querySubscription = subscription;
+        if (subscription && this.querySetupLifecycle) {
+          this.querySetupLifecycle.querySubscribed = true;
+        }
+      },
     });
 
     this.addActivationHandler(() => {
@@ -144,7 +160,13 @@ export class DashboardSceneQueryRunner extends SceneQueryRunner {
 
     return baseRunWithTimeRange(contextualTimeRange).finally(() => {
       this.activePreparations.delete(lifecycle.id);
-      if (!lifecycle.requestId && this.state.data?.state !== LoadingState.Loading) {
+      if (this.querySetupLifecycle?.id === lifecycle.id) {
+        this.querySetupLifecycle = undefined;
+      }
+      if (
+        (!lifecycle.requestId && this.state.data?.state !== LoadingState.Loading) ||
+        (lifecycle.requestId && !lifecycle.querySubscribed)
+      ) {
         this.clearPendingLifecycle(lifecycle.id);
       }
     });
