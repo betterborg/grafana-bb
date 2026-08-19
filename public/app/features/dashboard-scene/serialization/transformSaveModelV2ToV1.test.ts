@@ -191,12 +191,50 @@ describe('V2 to V1 Dashboard Transformation Comparison', () => {
         // Frontend path: Transform v2beta1 through Scene
         const frontendSpec = transformV2ToV1UsingFrontendTransformers(jsonInput);
 
+        assertPanelRefreshes(jsonInput.spec, backendSpec);
+        assertPanelRefreshes(jsonInput.spec, frontendSpec);
+
         // Compare specs (excluding metadata fields)
         expect(removeMetadata(backendSpec)).toEqual(removeMetadata(frontendSpec));
       });
     });
   });
 });
+
+interface ClassicPanelWithRefresh {
+  id?: number;
+  refresh?: string;
+  panels?: ClassicPanelWithRefresh[];
+}
+
+function assertPanelRefreshes(v2Spec: DashboardV2Spec, converted: Dashboard): void {
+  for (const element of Object.values(v2Spec.elements)) {
+    if (element.kind !== 'Panel' || element.spec.data.spec.queryOptions.refresh === undefined) {
+      continue;
+    }
+
+    const convertedPanel = findClassicPanel(converted.panels, element.spec.id);
+    expect(convertedPanel?.refresh).toBe(element.spec.data.spec.queryOptions.refresh);
+  }
+}
+
+function findClassicPanel(
+  panels: ClassicPanelWithRefresh[] | undefined,
+  panelId: number
+): ClassicPanelWithRefresh | undefined {
+  for (const panel of panels ?? []) {
+    if (panel.id === panelId) {
+      return panel;
+    }
+
+    const nestedPanel = findClassicPanel(panel.panels, panelId);
+    if (nestedPanel) {
+      return nestedPanel;
+    }
+  }
+
+  return undefined;
+}
 
 /** Remove metadata fields that differ between backend and frontend transformations */
 function removeMetadata(spec: Dashboard): Partial<Dashboard> {

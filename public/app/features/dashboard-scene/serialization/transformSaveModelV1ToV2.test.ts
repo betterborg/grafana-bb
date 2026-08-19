@@ -1,6 +1,8 @@
 import { existsSync, readFileSync } from 'fs';
 import path from 'path';
 
+import { type PanelKind, type Spec as DashboardV2Spec } from '@grafana/schema/apis/dashboard.grafana.app/v2';
+
 import { getSceneCreationOptions } from '../pages/DashboardScenePageStateManager';
 
 import {
@@ -299,6 +301,9 @@ describe('V1 to V2 Dashboard Transformation Comparison', () => {
       // (Go backend omits empty arrays due to omitempty, frontend preserves them)
       const normalizedFrontendOutput = removeEmptyArrays(frontendOutput);
 
+      assertPanelRefreshes(dashboardSpec.panels, normalizedBackendOutput);
+      assertPanelRefreshes(dashboardSpec.panels, normalizedFrontendOutput);
+
       // Compare only the spec structures - this is the core transformation
       expect(normalizedBackendOutput).toEqual(normalizedFrontendOutput);
     });
@@ -388,8 +393,31 @@ describe('V1 to V2 Dashboard Transformation Comparison', () => {
       // (Go backend omits empty arrays due to omitempty, frontend preserves them)
       const normalizedFrontendOutput = removeEmptyArrays(frontendOutput);
 
+      assertPanelRefreshes(dashboardSpec.panels, normalizedBackendOutput);
+      assertPanelRefreshes(dashboardSpec.panels, normalizedFrontendOutput);
+
       // Compare only the spec structures - this is the core transformation
       expect(normalizedBackendOutput).toEqual(normalizedFrontendOutput);
     });
   });
 });
+
+interface ClassicPanelWithRefresh {
+  id?: number;
+  refresh?: unknown;
+  panels?: ClassicPanelWithRefresh[];
+}
+
+function assertPanelRefreshes(panels: ClassicPanelWithRefresh[] | undefined, converted: DashboardV2Spec): void {
+  for (const panel of panels ?? []) {
+    if (typeof panel.refresh === 'string') {
+      const convertedPanel = Object.values(converted.elements).find(
+        (element): element is PanelKind => element.kind === 'Panel' && element.spec.id === panel.id
+      );
+
+      expect(convertedPanel?.spec.data.spec.queryOptions.refresh).toBe(panel.refresh);
+    }
+
+    assertPanelRefreshes(panel.panels, converted);
+  }
+}

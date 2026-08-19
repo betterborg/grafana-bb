@@ -28,6 +28,7 @@ import {
 import { type DashboardDataDTO, type DashboardDTO } from 'app/types/dashboard';
 
 import {
+  buildPanelKind,
   getDefaultDatasource,
   getPanelQueries,
   ResponseTransformers,
@@ -88,6 +89,93 @@ describe('ResponseTransformers', () => {
         uid: 'xyz-abc',
         type: 'prometheus',
       });
+    });
+  });
+
+  describe('panel refresh conversion', () => {
+    const buildV2Dashboard = (refresh?: string): DashboardWithAccessInfo<DashboardV2Spec> => {
+      const panel = handyTestingSchema.elements['panel-1'] as PanelKind;
+
+      return {
+        apiVersion: 'v2',
+        kind: 'DashboardWithAccessInfo',
+        metadata: {
+          name: 'dashboard-uid',
+          resourceVersion: '1',
+          creationTimestamp: '2023-01-01T00:00:00Z',
+        },
+        access: {},
+        spec: {
+          ...handyTestingSchema,
+          elements: {
+            ...handyTestingSchema.elements,
+            'panel-1': {
+              ...panel,
+              spec: {
+                ...panel.spec,
+                data: {
+                  ...panel.spec.data,
+                  spec: {
+                    ...panel.spec.data.spec,
+                    queryOptions: {
+                      ...panel.spec.data.spec.queryOptions,
+                      ...(refresh !== undefined && { refresh }),
+                    },
+                  },
+                },
+              },
+            },
+          },
+        },
+      };
+    };
+
+    it.each([
+      ['absent', undefined],
+      ['off', 'off'],
+      ['interval', '30s'],
+    ])('preserves %s refresh in both directions', (_, refresh) => {
+      const classicPanel: Panel = {
+        id: 1,
+        type: 'timeseries',
+        title: 'Panel',
+        targets: [],
+        ...(refresh !== undefined && { refresh }),
+      };
+
+      const v2Panel = buildPanelKind(classicPanel);
+      const queryOptions = v2Panel.spec.data.spec.queryOptions;
+      const roundTripPanel = ResponseTransformers.ensureV1Response(buildV2Dashboard(refresh)).dashboard.panels?.find(
+        (panel) => panel.id === 1
+      );
+
+      if (refresh === undefined) {
+        expect(queryOptions).not.toHaveProperty('refresh');
+        expect(roundTripPanel).not.toHaveProperty('refresh');
+      } else {
+        expect(queryOptions.refresh).toBe(refresh);
+        expect(roundTripPanel?.refresh).toBe(refresh);
+      }
+    });
+
+    it('places Angular panel refresh only in query options', () => {
+      const angularPanel: Panel & { format: string } = {
+        id: 1,
+        type: 'singlestat',
+        title: 'Angular panel',
+        targets: [],
+        refresh: 'off',
+        format: 'short',
+      };
+      const v2Panel = buildPanelKind(angularPanel);
+
+      expect(v2Panel.spec.data.spec.queryOptions.refresh).toBe('off');
+      expect(v2Panel.spec.vizConfig.spec.options).toMatchObject({
+        __angularMigration: {
+          originalOptions: { format: 'short' },
+        },
+      });
+      expect(v2Panel.spec.vizConfig.spec.options.__angularMigration.originalOptions).not.toHaveProperty('refresh');
     });
   });
 
@@ -1133,6 +1221,7 @@ describe('ResponseTransformers', () => {
 
     expect(v1.cacheTimeout).toBe(v2Spec.data.spec.queryOptions.cacheTimeout);
     expect(v1.maxDataPoints).toBe(v2Spec.data.spec.queryOptions.maxDataPoints);
+    expect(v1.refresh).toBe(v2Spec.data.spec.queryOptions.refresh);
     expect(v1.interval).toBe(v2Spec.data.spec.queryOptions.interval);
     expect(v1.hideTimeOverride).toBe(v2Spec.data.spec.queryOptions.hideTimeOverride);
     expect(v1.queryCachingTTL).toBe(v2Spec.data.spec.queryOptions.queryCachingTTL);
