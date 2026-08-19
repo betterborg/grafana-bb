@@ -968,6 +968,8 @@ export type LibraryPanelSpec = {
   panelTitle?: string;
   /** The panel type */
   pluginVersion?: string;
+  /** Panel refresh interval override */
+  refresh?: string;
   /** The datasource queries */
   targets?: DataResponse[];
   /** The title of the library panel */

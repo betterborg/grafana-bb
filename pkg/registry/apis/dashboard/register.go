@@ -367,7 +367,17 @@ func (b *DashboardsAPIBuilder) Validate(ctx context.Context, a admission.Attribu
 		}
 
 	case dashv0.LIBRARY_PANEL_RESOURCE:
-		return nil // OK for now
+		switch op {
+		case admission.Create, admission.Update:
+			panel, ok := a.GetObject().(*dashv0.LibraryPanel)
+			if !ok {
+				return fmt.Errorf("expected library panel")
+			}
+			if err := dashboards.ValidatePanelRefreshInterval(b.minRefreshInterval, panel.Spec.Refresh); err != nil {
+				return apierrors.NewBadRequest(dashboards.ErrDashboardPanelRefreshIntervalInvalid.Reason)
+			}
+		}
+		return nil
 	case dashv0.SNAPSHOT_RESOURCE:
 		return nil // OK for now
 	// Reachability invariant: Variable storage is always registered, but

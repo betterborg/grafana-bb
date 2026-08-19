@@ -2574,6 +2574,10 @@
             "description": "The panel type",
             "type": "string"
           },
+          "refresh": {
+            "description": "Panel refresh interval override",
+            "type": "string"
+          },
           "targets": {
             "description": "The datasource queries",
             "type": "array",

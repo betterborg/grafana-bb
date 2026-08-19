@@ -1,6 +1,7 @@
 package libraryelements
 
 import (
+	"encoding/json"
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
@@ -147,6 +148,24 @@ func TestIntegration_CreateLibraryElement(t *testing.T) {
 			sc.reqContext.Req.Body = mockRequestBody(command)
 			resp := sc.service.createHandler(sc.reqContext)
 			require.Equal(t, 400, resp.Status())
+		})
+
+	testScenario(t, "When an admin tries to create a library panel with an invalid refresh, it should fail before storage",
+		func(t *testing.T, sc scenarioContext) {
+			sc.service.Cfg.MinRefreshInterval = "10s"
+			command := getCreatePanelCommand(sc.folder.ID, sc.folder.UID, "Invalid refresh")
+			var panel map[string]any
+			require.NoError(t, json.Unmarshal(command.Model, &panel))
+			panel["refresh"] = "5s"
+			command.Model, _ = json.Marshal(panel)
+			sc.reqContext.Req.Body = mockRequestBody(command)
+
+			resp := sc.service.createHandler(sc.reqContext)
+			require.Equal(t, 400, resp.Status())
+
+			result, err := sc.service.GetAllElements(sc.reqContext.Req.Context(), sc.reqContext.SignedInUser, model.SearchLibraryElementsQuery{})
+			require.NoError(t, err)
+			require.Empty(t, result.Elements)
 		})
 
 	testScenario(t, "When an admin tries to create a library panel where name and panel title differ, it should not update panel title",

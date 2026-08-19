@@ -965,6 +965,13 @@ func schema_pkg_apis_dashboard_v0alpha1_LibraryPanelSpec(ref common.ReferenceCal
 							Format:      "",
 						},
 					},
+					"refresh": {
+						SchemaProps: spec.SchemaProps{
+							Description: "Panel refresh interval override",
+							Type:        []string{"string"},
+							Format:      "",
+						},
+					},
 					"links": {
 						SchemaProps: spec.SchemaProps{
 							Description: "The links for the panel",

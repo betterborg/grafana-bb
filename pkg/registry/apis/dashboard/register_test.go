@@ -13,12 +13,61 @@ import (
 	types "k8s.io/apimachinery/pkg/types"
 	"k8s.io/apiserver/pkg/admission"
 
+	dashv0 "github.com/grafana/grafana/apps/dashboard/pkg/apis/dashboard/v0alpha1"
 	dashv1 "github.com/grafana/grafana/apps/dashboard/pkg/apis/dashboard/v1"
 	common "github.com/grafana/grafana/pkg/apimachinery/apis/common/v0alpha1"
 	"github.com/grafana/grafana/pkg/apimachinery/utils"
 	"github.com/grafana/grafana/pkg/services/user"
 	"github.com/grafana/grafana/pkg/storage/unified/resourcepb"
 )
+
+func TestLibraryPanelAPIBuilderRefreshValidation(t *testing.T) {
+	tests := []struct {
+		name      string
+		refresh   string
+		shouldErr bool
+	}{
+		{name: "missing"},
+		{name: "empty", refresh: ""},
+		{name: "off", refresh: "off"},
+		{name: "at floor", refresh: "10s"},
+		{name: "above floor", refresh: "30s"},
+		{name: "below floor", refresh: "5s", shouldErr: true},
+		{name: "malformed", refresh: "sometimes", shouldErr: true},
+	}
+
+	for _, operation := range []admission.Operation{admission.Create, admission.Update} {
+		t.Run(string(operation), func(t *testing.T) {
+			for _, tt := range tests {
+				t.Run(tt.name, func(t *testing.T) {
+					panel := &dashv0.LibraryPanel{
+						ObjectMeta: metav1.ObjectMeta{Name: "panel", Namespace: "stacks-123"},
+						Spec:       dashv0.LibraryPanelSpec{Refresh: tt.refresh},
+					}
+					builder := &DashboardsAPIBuilder{minRefreshInterval: "10s"}
+					err := builder.Validate(context.Background(), admission.NewAttributesRecord(
+						panel,
+						panel.DeepCopy(),
+						dashv0.LibraryPanelResourceInfo.GroupVersionKind(),
+						panel.Namespace,
+						panel.Name,
+						dashv0.LibraryPanelResourceInfo.GroupVersionResource(),
+						"",
+						operation,
+						nil,
+						false,
+						&user.SignedInUser{},
+					), nil)
+					if tt.shouldErr {
+						require.True(t, apierrors.IsBadRequest(err), "expected bad request, got %v", err)
+					} else {
+						require.NoError(t, err)
+					}
+				})
+			}
+		})
+	}
+}
 
 // newDashboardUnstructured builds a minimal unstructured dashboard with optional annotations.
 func newDashboardUnstructured(name string, annotations map[string]string) *unstructured.Unstructured {

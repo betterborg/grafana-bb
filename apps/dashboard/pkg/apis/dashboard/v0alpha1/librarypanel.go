@@ -73,6 +73,9 @@ type LibraryPanelSpec struct {
 	// Whether the panel is transparent
 	Transparent bool `json:"transparent,omitempty"`
 
+	// Panel refresh interval override
+	Refresh string `json:"refresh,omitempty"`
+
 	// The links for the panel
 	Links []common.Unstructured `json:"links,omitempty"`
 

@@ -210,6 +210,27 @@ func TestIntegration_PatchLibraryElement(t *testing.T) {
 			require.Equal(t, 400, resp.Status())
 		})
 
+	scenarioWithPanel(t, "When an admin tries to patch a library panel with an invalid refresh, it should fail without changing the panel",
+		func(t *testing.T, sc scenarioContext) {
+			sc.service.Cfg.MinRefreshInterval = "10s"
+			before, err := sc.service.GetElement(sc.reqContext.Req.Context(), sc.reqContext.SignedInUser, model.GetLibraryElementCommand{UID: sc.initialResult.Result.UID})
+			require.NoError(t, err)
+			cmd := model.PatchLibraryElementCommand{
+				Model:   []byte(`{"type":"graph","title":"Changed","refresh":"sometimes"}`),
+				Kind:    int64(model.PanelElement),
+				Version: before.Version,
+			}
+			sc.ctx.Req = web.SetURLParams(sc.ctx.Req, map[string]string{":uid": sc.initialResult.Result.UID})
+			sc.reqContext.Req.Body = mockRequestBody(cmd)
+
+			resp := sc.service.patchHandler(sc.reqContext)
+			require.Equal(t, 400, resp.Status())
+			after, err := sc.service.GetElement(sc.reqContext.Req.Context(), sc.reqContext.SignedInUser, model.GetLibraryElementCommand{UID: sc.initialResult.Result.UID})
+			require.NoError(t, err)
+			require.Equal(t, before.Version, after.Version)
+			require.JSONEq(t, string(before.Model), string(after.Model))
+		})
+
 	scenarioWithPanel(t, "When an admin tries to patch a library panel with an existing UID, it should fail",
 		func(t *testing.T, sc scenarioContext) {
 			// nolint:staticcheck
