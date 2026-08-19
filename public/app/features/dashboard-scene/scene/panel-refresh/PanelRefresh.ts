@@ -5,6 +5,7 @@ import { config } from '@grafana/runtime';
 import { SceneDataTransformer, SceneObjectBase, type SceneObjectState, VizPanel } from '@grafana/scenes';
 
 import { DashboardSceneQueryRunner } from '../DashboardSceneQueryRunner';
+import { PanelTimeRange } from '../panel-timerange/PanelTimeRange';
 import { RefreshOrigin, runWithRefreshOrigin } from '../refresh-origin';
 
 import { getPanelRefreshInterval, getPanelRefreshPolicy, PanelRefreshPolicy } from './policy';
@@ -91,6 +92,7 @@ export class PanelRefresh extends SceneObjectBase<PanelRefreshState> {
     this.runnerSubscription?.unsubscribe();
     this.runner = runner;
     this.panelTimeRange = panelTimeRange;
+    runner?.rebindToCurrentTimeRange();
     this.runnerSubscription = runner?.subscribeToState((next, previous) => {
       if (next.data !== previous.data) {
         this.onRunnerDataChanged();
@@ -240,6 +242,14 @@ export class PanelRefresh extends SceneObjectBase<PanelRefreshState> {
 }
 
 export function setPanelRefreshFor(panel: VizPanel, refresh?: string): PanelRefresh {
+  if (
+    config.featureToggles.panelRefreshOverride &&
+    getPanelRefreshPolicy(refresh) !== PanelRefreshPolicy.Inherit &&
+    !panel.state.$timeRange
+  ) {
+    panel.setState({ $timeRange: new PanelTimeRange() });
+  }
+
   let panelRefresh = getPanelRefreshFor(panel);
   if (!panelRefresh) {
     panelRefresh = new PanelRefresh({ refresh });
