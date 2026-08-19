@@ -168,7 +168,7 @@ export class DashboardSceneQueryRunner extends SceneQueryRunner {
   private trackRunWithTimeRange(baseRunWithTimeRange: RunWithTimeRange, timeRange: SceneTimeRangeLike): Promise<void> {
     const lifecycle = this.nextRunLifecycle ?? this.openLifecycle(this.consumeRefreshOrigin(timeRange));
     this.nextRunLifecycle = undefined;
-    this.retireSupersededSubscribedLifecycles(lifecycle.id);
+    this.retireSupersededLifecycles(lifecycle.id);
     const contextualTimeRange = this.createContextualTimeRange(timeRange, lifecycle);
     this.activePreparations.add(lifecycle.id);
 
@@ -337,9 +337,10 @@ export class DashboardSceneQueryRunner extends SceneQueryRunner {
     }
   }
 
-  private retireSupersededSubscribedLifecycles(currentLifecycleId: number): void {
+  private retireSupersededLifecycles(currentLifecycleId: number): void {
     for (const lifecycle of this.pendingLifecycles.values()) {
-      if (lifecycle.id !== currentLifecycleId && lifecycle.querySubscribed) {
+      const skippedPreparation = !lifecycle.requestId && !this.activePreparations.has(lifecycle.id);
+      if (lifecycle.id !== currentLifecycleId && (lifecycle.querySubscribed || skippedPreparation)) {
         this.discardPendingLifecycle(lifecycle);
       }
     }

@@ -169,6 +169,22 @@ describe('DashboardSceneQueryRunner', () => {
     expect(runner.getPendingLifecycle()).toMatchObject({ id: 1, origin: RefreshOrigin.Global });
   });
 
+  it('retires a skipped variable-loading lifecycle when a retry supersedes it', async () => {
+    const runner = buildRunner();
+    jest.spyOn(Reflect.get(runner, '_variableDependency'), 'hasDependencyInLoadingState').mockReturnValue(true);
+
+    runner.runQueries();
+    await Promise.resolve();
+    expect(Array.from(Reflect.get(runner, 'pendingLifecycles').keys())).toEqual([1]);
+
+    runner.runQueries();
+    await Promise.resolve();
+
+    expect(getDataSourceMock).not.toHaveBeenCalled();
+    expect(runner.getPendingLifecycle()).toMatchObject({ id: 2, origin: RefreshOrigin.Global });
+    expect(Array.from(Reflect.get(runner, 'pendingLifecycles').keys())).toEqual([2]);
+  });
+
   it('ignores a data-layer update retaining the previous request while datasource resolution is pending', () => {
     const datasourceResolution = deferred<DataSourceApi>();
     getDataSourceMock.mockReturnValue(datasourceResolution.promise);
