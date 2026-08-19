@@ -11,7 +11,9 @@ import {
 import { Box, Button, Combobox, Drawer, FeatureBadge, Field, Label, Stack, Switch } from '@grafana/ui';
 
 import { getQuickOptions } from '../../../../../../packages/grafana-ui/src/components/DateTimePickers/options';
+import { PanelRefreshPicker } from '../../../query/components/PanelRefreshPicker';
 import { getDashboardSceneFor, getQueryRunnerFor } from '../../utils/utils';
+import { getPanelRefreshFor, setPanelRefreshFor } from '../panel-refresh/PanelRefresh';
 
 import { PanelTimeRange } from './PanelTimeRange';
 
@@ -32,6 +34,7 @@ export interface PanelTimeRangeDrawerState extends SceneObjectState {
   hideTimeOverride?: boolean;
   compareWith?: string;
   timeFromLocked?: boolean;
+  refresh?: string;
 }
 
 export class PanelTimeRangeDrawer extends SceneObjectBase<PanelTimeRangeDrawerState> {
@@ -51,6 +54,8 @@ export class PanelTimeRangeDrawer extends SceneObjectBase<PanelTimeRangeDrawerSt
         compareWith: timeRange.state.compareWith,
       });
     }
+
+    this.setState({ refresh: getPanelRefreshFor(panel)?.state.refresh });
   }
 
   public onClose = () => {
@@ -60,6 +65,7 @@ export class PanelTimeRangeDrawer extends SceneObjectBase<PanelTimeRangeDrawerSt
   public onApply = () => {
     const panel = this.state.panelRef.resolve();
     let timeRange = panel.state.$timeRange;
+    const hasTimeOverride = Boolean(this.state.timeFrom || this.state.timeShift || this.state.compareWith);
 
     if (!(timeRange instanceof PanelTimeRange)) {
       timeRange = new PanelTimeRange();
@@ -79,11 +85,18 @@ export class PanelTimeRangeDrawer extends SceneObjectBase<PanelTimeRangeDrawerSt
       queryRunner?.runQueries();
     }
 
+    if (config.featureToggles.panelRefreshOverride) {
+      if (!hasTimeOverride && !this.state.refresh && panel.state.$timeRange instanceof PanelTimeRange) {
+        panel.setState({ $timeRange: undefined });
+      }
+      setPanelRefreshFor(panel, this.state.refresh);
+    }
+
     this.onClose();
   };
 
   static Component = ({ model }: SceneComponentProps<PanelTimeRangeDrawer>) => {
-    const { timeFrom, timeShift, compareWith, hideTimeOverride } = model.useState();
+    const { timeFrom, timeShift, compareWith, hideTimeOverride, refresh } = model.useState();
 
     const timeOptions = getQuickOptions()
       .filter((o) => {
@@ -147,6 +160,10 @@ export class PanelTimeRangeDrawer extends SceneObjectBase<PanelTimeRangeDrawerSt
               }}
             />
           </Field>
+
+          {config.featureToggles.panelRefreshOverride && (
+            <PanelRefreshPicker value={refresh} onChange={(refresh) => model.setState({ refresh })} />
+          )}
 
           {config.featureToggles.timeComparison && (
             <Field
