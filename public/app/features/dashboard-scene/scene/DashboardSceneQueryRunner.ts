@@ -1,6 +1,6 @@
 import type { Unsubscribable } from 'rxjs';
 
-import { LoadingState } from '@grafana/data';
+import { type DataQueryRequest, type DataSourceApi, LoadingState } from '@grafana/data';
 import {
   type QueryRunnerState,
   SceneQueryRunner,
@@ -21,25 +21,21 @@ interface PendingDashboardQueryLifecycle extends DashboardQueryLifecycle {
   previousRequestId?: string;
 }
 
-interface QueuedQueryRun {
-  lifecycle: PendingDashboardQueryLifecycle;
-  timeRange: SceneTimeRangeLike;
-}
-
 interface CapturedRefreshOrigin {
   origin: RefreshOrigin;
   timeRange: SceneTimeRangeLike;
 }
 
 type RunWithTimeRange = (timeRange: SceneTimeRangeLike) => Promise<void>;
+type PreparedRequests = { primary: DataQueryRequest };
+type PrepareRequests = (timeRange: SceneTimeRangeLike, datasource: DataSourceApi) => PreparedRequests;
 
 export class DashboardSceneQueryRunner extends SceneQueryRunner {
   private nextLifecycleId = 0;
   private pendingLifecycle?: PendingDashboardQueryLifecycle;
   private nextRunLifecycle?: PendingDashboardQueryLifecycle;
-  private preparingLifecycleId?: number;
-  private queuedRun?: QueuedQueryRun;
-  private cancelledPreparations = new Set<number>();
+  private activePreparations = new Set<number>();
+  private lifecycleByTimeRange = new WeakMap<SceneTimeRangeLike, PendingDashboardQueryLifecycle>();
   private refreshOriginTimeRange?: SceneTimeRangeLike;
   private refreshOriginSubscription?: Unsubscribable;
   private capturedRefreshOrigins: CapturedRefreshOrigin[] = [];
@@ -49,12 +45,21 @@ export class DashboardSceneQueryRunner extends SceneQueryRunner {
   public constructor(initialState: QueryRunnerState) {
     super(initialState);
 
-    // SceneQueryRunner starts requests in a private async method after datasource resolution. Queueing that preparation
-    // is the only way to prevent an older lookup from publishing the first request after a newer lifecycle has opened.
+    // The base runner creates request IDs after its async datasource lookup. A per-run time range context keeps
+    // overlapping lookups correlated with their own lifecycle without changing when either lookup starts.
     const baseRunWithTimeRange: RunWithTimeRange = Reflect.get(this, 'runWithTimeRange').bind(this);
     Reflect.set(this, 'runWithTimeRange', (timeRange: SceneTimeRangeLike) =>
-      this.scheduleRunWithTimeRange(baseRunWithTimeRange, timeRange)
+      this.trackRunWithTimeRange(baseRunWithTimeRange, timeRange)
     );
+    const basePrepareRequests: PrepareRequests = Reflect.get(this, 'prepareRequests').bind(this);
+    Reflect.set(this, 'prepareRequests', (timeRange: SceneTimeRangeLike, datasource: DataSourceApi) => {
+      const requests = basePrepareRequests(timeRange, datasource);
+      const lifecycle = this.lifecycleByTimeRange.get(timeRange);
+      if (lifecycle) {
+        lifecycle.requestId = requests.primary.requestId;
+      }
+      return requests;
+    });
 
     this.addActivationHandler(() => {
       this.subscribeToRefreshOrigins();
@@ -90,10 +95,6 @@ export class DashboardSceneQueryRunner extends SceneQueryRunner {
   public override cancelQuery(): void {
     const lifecycleId = this.pendingLifecycle?.id;
     this.nextRunLifecycle = undefined;
-    this.queuedRun = undefined;
-    if (this.preparingLifecycleId !== undefined) {
-      this.cancelledPreparations.add(this.preparingLifecycleId);
-    }
 
     try {
       super.cancelQuery();
@@ -135,19 +136,18 @@ export class DashboardSceneQueryRunner extends SceneQueryRunner {
     return lifecycle;
   }
 
-  private scheduleRunWithTimeRange(
-    baseRunWithTimeRange: RunWithTimeRange,
-    timeRange: SceneTimeRangeLike
-  ): Promise<void> {
+  private trackRunWithTimeRange(baseRunWithTimeRange: RunWithTimeRange, timeRange: SceneTimeRangeLike): Promise<void> {
     const lifecycle = this.nextRunLifecycle ?? this.openLifecycle(this.consumeRefreshOrigin(timeRange));
     this.nextRunLifecycle = undefined;
+    const contextualTimeRange = this.createContextualTimeRange(timeRange, lifecycle);
+    this.activePreparations.add(lifecycle.id);
 
-    if (this.preparingLifecycleId !== undefined) {
-      this.queuedRun = { lifecycle, timeRange };
-      return Promise.resolve();
-    }
-
-    return this.startRunWithTimeRange(baseRunWithTimeRange, { lifecycle, timeRange });
+    return baseRunWithTimeRange(contextualTimeRange).finally(() => {
+      this.activePreparations.delete(lifecycle.id);
+      if (!lifecycle.requestId && this.state.data?.state !== LoadingState.Loading) {
+        this.clearPendingLifecycle(lifecycle.id);
+      }
+    });
   }
 
   private subscribeToRefreshOrigins(): void {
@@ -182,34 +182,18 @@ export class DashboardSceneQueryRunner extends SceneQueryRunner {
     return this.capturedRefreshOrigins.splice(index, 1)[0].origin;
   }
 
-  private async startRunWithTimeRange(baseRunWithTimeRange: RunWithTimeRange, run: QueuedQueryRun): Promise<void> {
-    const lifecycleId = run.lifecycle.id;
-    const querySubscriptionBeforeRun = this.getQuerySubscription();
-    this.preparingLifecycleId = lifecycleId;
-
-    try {
-      await baseRunWithTimeRange(run.timeRange);
-    } finally {
-      const didStartRequest = this.getQuerySubscription() !== querySubscriptionBeforeRun;
-      const wasCancelled = this.cancelledPreparations.delete(lifecycleId);
-
-      if (wasCancelled && didStartRequest) {
-        super.cancelQuery();
-      } else if (!didStartRequest) {
-        this.clearPendingLifecycle(lifecycleId);
-      }
-
-      this.preparingLifecycleId = undefined;
-      const queuedRun = this.queuedRun;
-      this.queuedRun = undefined;
-      if (queuedRun) {
-        await this.startRunWithTimeRange(baseRunWithTimeRange, queuedRun);
-      }
-    }
-  }
-
-  private getQuerySubscription(): unknown {
-    return Reflect.get(this, '_querySub');
+  private createContextualTimeRange(
+    timeRange: SceneTimeRangeLike,
+    lifecycle: PendingDashboardQueryLifecycle
+  ): SceneTimeRangeLike {
+    const contextualTimeRange = new Proxy(timeRange, {
+      get: (target, property) => {
+        const value = Reflect.get(target, property, target);
+        return typeof value === 'function' ? value.bind(target) : value;
+      },
+    });
+    this.lifecycleByTimeRange.set(contextualTimeRange, lifecycle);
+    return contextualTimeRange;
   }
 
   private handleDataStateChange(state: LoadingState | undefined, requestId: string | undefined): void {
@@ -218,20 +202,23 @@ export class DashboardSceneQueryRunner extends SceneQueryRunner {
       return;
     }
 
-    if (this.preparingLifecycleId !== undefined && this.preparingLifecycleId !== lifecycle.id) {
-      return;
-    }
-
     if (state === LoadingState.Done || state === LoadingState.Error) {
-      const isUnmatchedPreviousRequest =
-        !lifecycle.requestId && requestId === lifecycle.previousRequestId && this.preparingLifecycleId !== lifecycle.id;
-      if (!isUnmatchedPreviousRequest && (!lifecycle.requestId || requestId === lifecycle.requestId)) {
+      if (lifecycle.requestId) {
+        if (requestId === lifecycle.requestId) {
+          this.clearPendingLifecycle(lifecycle.id);
+        }
+      } else if (!this.activePreparations.has(lifecycle.id) && requestId !== lifecycle.previousRequestId) {
         this.clearPendingLifecycle(lifecycle.id);
       }
       return;
     }
 
-    if (requestId && requestId !== lifecycle.previousRequestId && !lifecycle.requestId) {
+    if (
+      requestId &&
+      requestId !== lifecycle.previousRequestId &&
+      !lifecycle.requestId &&
+      !this.activePreparations.has(lifecycle.id)
+    ) {
       lifecycle.requestId = requestId;
     }
   }

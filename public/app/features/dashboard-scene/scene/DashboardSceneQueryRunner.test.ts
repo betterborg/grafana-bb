@@ -1,7 +1,13 @@
 import { Subject } from 'rxjs';
-import { waitFor } from 'test/test-utils';
 
-import { type DataQueryRequest, type DataSourceApi, LoadingState, type PanelData } from '@grafana/data';
+import {
+  type DataQueryRequest,
+  type DataSourceApi,
+  DataTopic,
+  LoadingState,
+  type PanelData,
+  toDataFrame,
+} from '@grafana/data';
 import {
   EmbeddedScene,
   type QueryRunnerState,
@@ -62,41 +68,107 @@ describe('DashboardSceneQueryRunner', () => {
     expect(runner.isQueryPending()).toBe(false);
   });
 
-  it('does not bind a newer lifecycle to an older overlapping datasource resolution', async () => {
+  it('starts a newer datasource resolution without waiting for the older run', async () => {
     const firstDatasourceResolution = deferred<DataSourceApi>();
     const secondDatasourceResolution = deferred<DataSourceApi>();
-    const firstResults = new Subject<PanelData>();
-    const secondResults = new Subject<PanelData>();
+    const olderResults = new Subject<PanelData>();
+    const newerResults = new Subject<PanelData>();
     getDataSourceMock
       .mockReturnValueOnce(firstDatasourceResolution.promise)
       .mockReturnValueOnce(secondDatasourceResolution.promise);
-    runRequestMock.mockReturnValueOnce(firstResults).mockReturnValueOnce(secondResults);
+    runRequestMock.mockReturnValueOnce(olderResults).mockReturnValueOnce(newerResults);
     const runner = buildRunner();
 
     runWithRefreshOrigin(RefreshOrigin.Dashboard, () => runner.runQueries());
     runWithRefreshOrigin(RefreshOrigin.Panel, () => runner.runQueries());
 
     expect(runner.getPendingLifecycle()).toMatchObject({ id: 2, origin: RefreshOrigin.Panel });
-    expect(getDataSourceMock).toHaveBeenCalledTimes(1);
+    expect(getDataSourceMock).toHaveBeenCalledTimes(2);
 
     firstDatasourceResolution.resolve(createDatasource());
     await firstDatasourceResolution.promise;
+    await Promise.resolve();
 
-    await waitFor(() => expect(getDataSourceMock).toHaveBeenCalledTimes(2));
-    const firstRequest = runRequestMock.mock.calls[0][1] as DataQueryRequest;
-    firstResults.next(panelData(LoadingState.Done, firstRequest));
+    const olderRequest = runRequestMock.mock.calls[0][1] as DataQueryRequest;
+    olderResults.next(panelData(LoadingState.Loading, olderRequest));
+    expect(runner.getPendingLifecycle()).toMatchObject({ id: 2, origin: RefreshOrigin.Panel });
+    expect(runner.getPendingLifecycle()?.requestId).toBeUndefined();
+    olderResults.next(panelData(LoadingState.Done, olderRequest));
     expect(runner.getPendingLifecycle()).toMatchObject({ id: 2, origin: RefreshOrigin.Panel });
 
     secondDatasourceResolution.resolve(createDatasource());
     await secondDatasourceResolution.promise;
     await Promise.resolve();
 
-    const secondRequest = runRequestMock.mock.calls[1][1] as DataQueryRequest;
-    secondResults.next(panelData(LoadingState.Loading, secondRequest));
-    expect(runner.getPendingLifecycle()).toMatchObject({ id: 2, requestId: secondRequest.requestId });
+    const newerRequest = runRequestMock.mock.calls[1][1] as DataQueryRequest;
+    newerResults.next(panelData(LoadingState.Loading, newerRequest));
+    expect(runner.getPendingLifecycle()).toMatchObject({ id: 2, requestId: newerRequest.requestId });
 
-    secondResults.next(panelData(LoadingState.Done, secondRequest));
+    newerResults.next(panelData(LoadingState.Done, newerRequest));
     expect(runner.isQueryPending()).toBe(false);
+  });
+
+  it('matches the newer lifecycle when its datasource resolves first', async () => {
+    const firstDatasourceResolution = deferred<DataSourceApi>();
+    const secondDatasourceResolution = deferred<DataSourceApi>();
+    const newerResults = new Subject<PanelData>();
+    const olderResults = new Subject<PanelData>();
+    getDataSourceMock
+      .mockReturnValueOnce(firstDatasourceResolution.promise)
+      .mockReturnValueOnce(secondDatasourceResolution.promise);
+    runRequestMock.mockReturnValueOnce(newerResults).mockReturnValueOnce(olderResults);
+    const runner = buildRunner();
+
+    runner.runQueries();
+    runWithRefreshOrigin(RefreshOrigin.Panel, () => runner.runQueries());
+
+    secondDatasourceResolution.resolve(createDatasource());
+    await secondDatasourceResolution.promise;
+    await Promise.resolve();
+
+    const newerRequest = runRequestMock.mock.calls[0][1] as DataQueryRequest;
+    newerResults.next(panelData(LoadingState.Loading, newerRequest));
+    expect(runner.getPendingLifecycle()).toMatchObject({ id: 2, requestId: newerRequest.requestId });
+
+    firstDatasourceResolution.resolve(createDatasource());
+    await firstDatasourceResolution.promise;
+    await Promise.resolve();
+
+    const olderRequest = runRequestMock.mock.calls[1][1] as DataQueryRequest;
+    olderResults.next(panelData(LoadingState.Done, olderRequest));
+    expect(runner.getPendingLifecycle()).toMatchObject({ id: 2, requestId: newerRequest.requestId });
+
+    newerResults.next(panelData(LoadingState.Done, newerRequest));
+    expect(runner.isQueryPending()).toBe(false);
+  });
+
+  it('keeps the lifecycle pending while a variable dependency is loading', async () => {
+    const runner = buildRunner();
+    jest.spyOn(Reflect.get(runner, '_variableDependency'), 'hasDependencyInLoadingState').mockReturnValue(true);
+
+    runner.runQueries();
+    await Promise.resolve();
+
+    expect(getDataSourceMock).not.toHaveBeenCalled();
+    expect(runner.state.data?.state).toBe(LoadingState.Loading);
+    expect(runner.getPendingLifecycle()).toMatchObject({ id: 1, origin: RefreshOrigin.Global });
+  });
+
+  it('ignores a data-layer update retaining the previous request while datasource resolution is pending', () => {
+    const datasourceResolution = deferred<DataSourceApi>();
+    getDataSourceMock.mockReturnValue(datasourceResolution.promise);
+    const previousRequest = request('previous-request');
+    const runner = buildRunner({ data: panelData(LoadingState.Done, previousRequest) });
+
+    runner.runQueries();
+    publishAnnotationLayer(runner);
+
+    expect(runner.state.data).toMatchObject({
+      state: LoadingState.Done,
+      request: { requestId: previousRequest.requestId },
+    });
+    expect(runner.state.data?.annotations).toHaveLength(1);
+    expect(runner.getPendingLifecycle()).toMatchObject({ id: 1, origin: RefreshOrigin.Global });
   });
 
   it('settles a pre-request datasource error that retains data from a prior request', async () => {
@@ -282,6 +354,24 @@ function panelData(state: LoadingState, dataRequest: DataQueryRequest): PanelDat
     timeRange: dataRequest.range,
     request: dataRequest,
   };
+}
+
+function publishAnnotationLayer(runner: DashboardSceneQueryRunner) {
+  const publish = Reflect.get(runner, '_onLayersReceived').bind(runner);
+  publish([
+    {
+      origin: runner,
+      data: {
+        ...panelData(LoadingState.Done, request('annotation-request')),
+        series: [
+          toDataFrame({
+            fields: [{ name: 'time', values: [Date.now()] }],
+            meta: { dataTopic: DataTopic.Annotations },
+          }),
+        ],
+      },
+    },
+  ]);
 }
 
 function deferred<T>() {
