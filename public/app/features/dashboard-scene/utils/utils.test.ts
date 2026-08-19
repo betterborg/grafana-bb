@@ -1,8 +1,9 @@
 import { getPanelPlugin } from '@grafana/data/test';
-import { setPluginImportUtils } from '@grafana/runtime';
+import { setDataSourceSrv, setPluginImportUtils, type DataSourceSrv } from '@grafana/runtime';
 import {
   VizPanel,
   ConstantVariable,
+  type SceneDataTransformer,
   SceneGridLayout,
   SceneFlexItem,
   SceneFlexLayout,
@@ -13,6 +14,7 @@ import {
 import { type Dashboard, type Panel, type RowPanel } from '@grafana/schema';
 
 import { DashboardScene } from '../scene/DashboardScene';
+import { DashboardSceneQueryRunner } from '../scene/DashboardSceneQueryRunner';
 import { AutoGridItem } from '../scene/layout-auto-grid/AutoGridItem';
 import { AutoGridLayout } from '../scene/layout-auto-grid/AutoGridLayout';
 import { AutoGridLayoutManager } from '../scene/layout-auto-grid/AutoGridLayoutManager';
@@ -28,6 +30,7 @@ import {
   hasLibraryPanelsInV1Dashboard,
   getLayoutForObject,
   forceRenderChildren,
+  getDefaultVizPanel,
 } from './utils';
 
 setPluginImportUtils({
@@ -36,6 +39,22 @@ setPluginImportUtils({
 });
 
 describe('utils', () => {
+  it('creates the default panel with a dashboard query runner', () => {
+    const originalDataSourceSrv = (
+      jest.requireActual('@grafana/runtime') as { getDataSourceSrv: () => DataSourceSrv }
+    ).getDataSourceSrv();
+    setDataSourceSrv({
+      getInstanceSettings: () => ({ uid: 'test-datasource', type: 'test' }),
+    } as DataSourceSrv);
+
+    try {
+      const provider = getDefaultVizPanel().state.$data as SceneDataTransformer;
+      expect(provider.state.$data).toBeInstanceOf(DashboardSceneQueryRunner);
+    } finally {
+      setDataSourceSrv(originalDataSourceSrv);
+    }
+  });
+
   describe('forceRenderChildren', () => {
     function buildPanelWithTimeOverride() {
       const panelTimeRange = new PanelTimeRange({ timeFrom: '2h' });

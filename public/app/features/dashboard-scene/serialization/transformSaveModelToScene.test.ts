@@ -10,7 +10,7 @@ import {
   type SceneGridItem,
   SceneGridLayout,
   SceneGridRow,
-  SceneQueryRunner,
+  type SceneQueryRunner,
   VizPanel,
 } from '@grafana/scenes';
 import {
@@ -31,6 +31,7 @@ import { type DashboardDataDTO } from 'app/types/dashboard';
 import { getSceneCreationOptions } from '../pages/DashboardScenePageStateManager';
 import { DashboardDataLayerSet } from '../scene/DashboardDataLayerSet';
 import { DashboardRefreshPicker } from '../scene/DashboardRefreshPicker';
+import { DashboardSceneQueryRunner } from '../scene/DashboardSceneQueryRunner';
 import { LibraryPanelBehavior } from '../scene/LibraryPanelBehavior';
 import { DashboardGridItem } from '../scene/layout-default/DashboardGridItem';
 import { type DefaultGridLayoutManager } from '../scene/layout-default/DefaultGridLayoutManager';
@@ -718,7 +719,7 @@ describe('transformSaveModelToScene', () => {
 
       const { vizPanel } = buildGridItemForTest(panel);
       expect(vizPanel.state.$data).toBeInstanceOf(SceneDataTransformer);
-      expect(vizPanel.state.$data?.state.$data).toBeInstanceOf(SceneQueryRunner);
+      expect(vizPanel.state.$data?.state.$data).toBeInstanceOf(DashboardSceneQueryRunner);
       expect((vizPanel.state.$data?.state.$data as SceneQueryRunner).state.queries).toEqual(panel.targets);
     });
 
