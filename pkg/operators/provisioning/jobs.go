@@ -116,7 +116,7 @@ func buildWorkers(cfg *setting.Cfg, controllerCfg *ControllerConfig, registry pr
 		return nil, nil, fmt.Errorf("failed to create provisioning client: %w", err)
 	}
 
-	repositoryResources := resources.NewRepositoryResourcesFactory(parsers, clients, resourceLister, folderMetadataEnabled)
+	repositoryResources := resources.NewRepositoryResourcesFactory(parsers, clients, resourceLister, folderMetadataEnabled, cfg.MinRefreshInterval)
 	statusPatcher := controller.NewRepositoryStatusPatcher(provisioningClient.ProvisioningV0alpha1())
 
 	urlProvider, err := controllerCfg.URLProvider()

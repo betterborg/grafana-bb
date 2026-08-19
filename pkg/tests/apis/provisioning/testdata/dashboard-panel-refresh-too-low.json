@@ -1,0 +1,32 @@
+{
+  "apiVersion": "dashboard.grafana.app/v1",
+  "kind": "Dashboard",
+  "metadata": {
+    "name": "repository-classic-panel-refresh"
+  },
+  "spec": {
+    "title": "Repository classic panel refresh",
+    "schemaVersion": 42,
+    "refresh": "30s",
+    "panels": [
+      {
+        "id": 1,
+        "title": "Panel with refresh override",
+        "type": "timeseries",
+        "refresh": "1s",
+        "gridPos": {
+          "h": 8,
+          "w": 12,
+          "x": 0,
+          "y": 0
+        },
+        "targets": [],
+        "fieldConfig": {
+          "defaults": {},
+          "overrides": []
+        },
+        "options": {}
+      }
+    ]
+  }
+}

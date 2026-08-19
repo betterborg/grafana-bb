@@ -6,6 +6,8 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/require"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
 
 	provisioning "github.com/grafana/grafana/apps/provisioning/pkg/apis/provisioning/v0alpha1"
@@ -154,6 +156,59 @@ func TestIntegrationProvisioning_JobWarningResult_DashboardRefreshInterval(t *te
 	}
 	require.True(t, found,
 		"should have warning message mentioning refresh interval validation error")
+}
+
+func TestIntegrationProvisioning_JobWarningResult_PanelRefreshIntervalsAreClamped(t *testing.T) {
+	helper := sharedHelper(t)
+
+	const repo = "job-warning-panel-refresh-interval-repo"
+	testRepo := common.TestRepo{
+		Name:       repo,
+		SyncTarget: "folder",
+		Copies: map[string]string{
+			"../testdata/dashboard-panel-refresh-too-low.json":    "dashboard-panel-refresh-low.json",
+			"../testdata/dashboard-v2-panel-refresh-too-low.json": "dashboard-v2-panel-refresh-low.json",
+		},
+		SkipSync: true,
+	}
+	helper.CreateLocalRepo(t, testRepo)
+
+	job := helper.TriggerJobAndWaitForComplete(t, repo, provisioning.JobSpec{
+		Action: provisioning.JobActionPull,
+		Pull:   &provisioning.SyncJobOptions{},
+	})
+
+	jobObj := &provisioning.Job{}
+	err := runtime.DefaultUnstructuredConverter.FromUnstructured(job.Object, jobObj)
+	require.NoError(t, err)
+	require.Equal(t, provisioning.JobStateSuccess, jobObj.Status.State)
+	require.Empty(t, jobObj.Status.Warnings)
+	require.Empty(t, jobObj.Status.Errors)
+
+	classic, err := helper.DashboardsV1.Resource.Get(t.Context(), "repository-classic-panel-refresh", metav1.GetOptions{})
+	require.NoError(t, err)
+	panels, found, err := unstructured.NestedSlice(classic.Object, "spec", "panels")
+	require.NoError(t, err)
+	require.True(t, found)
+	classicPanelRefresh, found, err := unstructured.NestedString(panels[0].(map[string]any), "refresh")
+	require.NoError(t, err)
+	require.True(t, found)
+	require.Equal(t, "10s", classicPanelRefresh)
+	classicDashboardRefresh, found, err := unstructured.NestedString(classic.Object, "spec", "refresh")
+	require.NoError(t, err)
+	require.True(t, found)
+	require.Equal(t, "30s", classicDashboardRefresh)
+
+	stableV2, err := helper.DashboardsV2.Resource.Get(t.Context(), "repository-v2-panel-refresh", metav1.GetOptions{})
+	require.NoError(t, err)
+	v2PanelRefresh, found, err := unstructured.NestedString(stableV2.Object, "spec", "elements", "panel-1", "spec", "data", "spec", "queryOptions", "refresh")
+	require.NoError(t, err)
+	require.True(t, found)
+	require.Equal(t, "10s", v2PanelRefresh)
+	v2AutoRefresh, found, err := unstructured.NestedString(stableV2.Object, "spec", "timeSettings", "autoRefresh")
+	require.NoError(t, err)
+	require.True(t, found)
+	require.Equal(t, "30s", v2AutoRefresh)
 }
 
 // TestIntegrationProvisioning_JobWarningResult_DashboardSchemaInvalid verifies

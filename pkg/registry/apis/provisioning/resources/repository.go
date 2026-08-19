@@ -50,6 +50,7 @@ type repositoryResourcesFactory struct {
 	clients               ClientFactory
 	lister                ResourceLister
 	folderMetadataEnabled bool
+	minRefreshInterval    string
 }
 
 type RepositoryResourcesOption func(*repositoryResourcesOptions)
@@ -116,12 +117,13 @@ func (r *repositoryResources) FindResourcePath(ctx context.Context, name string,
 	return sourcePath, nil
 }
 
-func NewRepositoryResourcesFactory(parsers ParserFactory, clients ClientFactory, lister ResourceLister, folderMetadataEnabled bool) RepositoryResourcesFactory {
+func NewRepositoryResourcesFactory(parsers ParserFactory, clients ClientFactory, lister ResourceLister, folderMetadataEnabled bool, minRefreshInterval string) RepositoryResourcesFactory {
 	return &repositoryResourcesFactory{
 		parsers:               parsers,
 		clients:               clients,
 		lister:                lister,
 		folderMetadataEnabled: folderMetadataEnabled,
+		minRefreshInterval:    minRefreshInterval,
 	}
 }
 
@@ -147,7 +149,7 @@ func (r *repositoryResourcesFactory) Client(ctx context.Context, repo repository
 
 	folderManagerOpts := append(cfg.folderManagerOptions, WithFolderMetadataEnabled(r.folderMetadataEnabled))
 	folders := NewFolderManager(repo, folderClient, NewEmptyFolderTree(), folderGVK, folderManagerOpts...)
-	resources := NewResourcesManager(repo, folders, parser, clients)
+	resources := NewResourcesManager(repo, folders, parser, clients, r.minRefreshInterval)
 
 	return &repositoryResources{
 		FolderManager:    folders,

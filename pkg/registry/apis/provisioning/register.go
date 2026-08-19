@@ -224,6 +224,7 @@ func NewAPIBuilder(
 	folderMetadataEnabled bool,
 	incrementalPolicy repository.IncrementalSyncPolicy,
 	maxFileSize int64,
+	minRefreshInterval string,
 ) (*APIBuilder, error) {
 	var clients resources.ClientFactory
 	if newStandaloneClientFactoryFunc != nil {
@@ -259,7 +260,7 @@ func NewAPIBuilder(
 		clients:                             clients,
 		supportedResources:                  supportedResources,
 		parsers:                             parsers,
-		repositoryResources:                 resources.NewRepositoryResourcesFactory(parsers, clients, resourceLister, features.IsEnabledGlobally(featuremgmt.FlagProvisioningFolderMetadata)), //nolint:staticcheck
+		repositoryResources:                 resources.NewRepositoryResourcesFactory(parsers, clients, resourceLister, features.IsEnabledGlobally(featuremgmt.FlagProvisioningFolderMetadata), minRefreshInterval), //nolint:staticcheck
 		resourceLister:                      resourceLister,
 		unified:                             unified,
 		access:                              accessChecker,
@@ -403,6 +404,7 @@ func RegisterAPIService(
 		folderMetadataEnabled,
 		incrementalPolicy,
 		maxFileSize,
+		cfg.MinRefreshInterval,
 	)
 	if err != nil {
 		return nil, err
@@ -449,6 +451,7 @@ func RegisterAPIService(
 		folderMetadataEnabled,
 		incrementalPolicy,
 		maxFileSize,
+		cfg.MinRefreshInterval,
 	)
 	if err != nil {
 		return nil, err

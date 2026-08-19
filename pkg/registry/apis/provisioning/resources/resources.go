@@ -19,6 +19,7 @@ import (
 	"github.com/grafana/grafana/pkg/apimachinery/utils"
 	"github.com/grafana/grafana/pkg/infra/slugify"
 	"github.com/grafana/grafana/pkg/infra/tracing"
+	"github.com/grafana/grafana/pkg/services/dashboards"
 	"github.com/grafana/grafana/pkg/services/dashboards/dashboardaccess"
 )
 
@@ -89,21 +90,23 @@ type resourceID struct {
 }
 
 type ResourcesManager struct {
-	repo            repository.ReaderWriter
-	folders         *FolderManager
-	parser          Parser
-	clients         ResourceClients
-	resourcesLookup map[resourceID]string // the path with this k8s name
-	mu              sync.RWMutex
+	repo               repository.ReaderWriter
+	folders            *FolderManager
+	parser             Parser
+	clients            ResourceClients
+	minRefreshInterval string
+	resourcesLookup    map[resourceID]string // the path with this k8s name
+	mu                 sync.RWMutex
 }
 
-func NewResourcesManager(repo repository.ReaderWriter, folders *FolderManager, parser Parser, clients ResourceClients) *ResourcesManager {
+func NewResourcesManager(repo repository.ReaderWriter, folders *FolderManager, parser Parser, clients ResourceClients, minRefreshInterval string) *ResourcesManager {
 	return &ResourcesManager{
-		repo:            repo,
-		folders:         folders,
-		parser:          parser,
-		clients:         clients,
-		resourcesLookup: map[resourceID]string{},
+		repo:               repo,
+		folders:            folders,
+		parser:             parser,
+		clients:            clients,
+		minRefreshInterval: minRefreshInterval,
+		resourcesLookup:    map[resourceID]string{},
 	}
 }
 
@@ -318,6 +321,21 @@ func (r *ResourcesManager) writeResourceFromParsed(ctx context.Context, path, re
 	// Clear any saved identifiers
 	parsed.Meta.SetUID("")
 	parsed.Meta.SetResourceVersion("")
+
+	if parsed.GVK.GroupKind() == DashboardKind.GroupKind() {
+		spec, found, err := unstructured.NestedMap(parsed.Obj.Object, "spec")
+		if err != nil {
+			return "", parsed.GVK, fmt.Errorf("read dashboard spec: %w", err)
+		}
+		if found {
+			if _, err := dashboards.ClampPanelRefreshIntervals(r.minRefreshInterval, spec); err != nil {
+				return "", parsed.GVK, fmt.Errorf("clamp dashboard panel refresh intervals: %w", err)
+			}
+			if err := unstructured.SetNestedMap(parsed.Obj.Object, spec, "spec"); err != nil {
+				return "", parsed.GVK, fmt.Errorf("write dashboard spec: %w", err)
+			}
+		}
+	}
 
 	runCtx, runSpan := tracing.Start(ctx, "provisioning.resources.write_resource_from_file.run_resource")
 	err := parsed.Run(runCtx)
