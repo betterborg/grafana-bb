@@ -11,7 +11,6 @@ import {
   GroupByVariable,
   IntervalVariable,
   QueryVariable,
-  SceneRefreshPicker,
   SceneTimePicker,
   type SceneVariable,
   SceneVariableSet,
@@ -74,6 +73,7 @@ import { DashboardAnnotationsDataLayer } from '../scene/DashboardAnnotationsData
 import { DashboardControls } from '../scene/DashboardControls';
 import { DashboardDataLayerSet } from '../scene/DashboardDataLayerSet';
 import { registerDashboardMacro } from '../scene/DashboardMacro';
+import { DashboardRefreshPicker } from '../scene/DashboardRefreshPicker';
 import { DashboardReloadBehavior } from '../scene/DashboardReloadBehavior';
 import { DashboardScene } from '../scene/DashboardScene';
 import { ReportInteractionBehavior } from '../scene/ReportInteractionBehavior';
@@ -270,7 +270,7 @@ export function transformSaveModelSchemaV2ToScene(
           quickRanges: dashboard.timeSettings.quickRanges,
           defaultQuickRanges: config.quickRanges,
         }),
-        refreshPicker: new SceneRefreshPicker({
+        refreshPicker: new DashboardRefreshPicker({
           refresh: dashboard.timeSettings.autoRefresh,
           intervals: dashboard.timeSettings.autoRefreshIntervals,
           withText: true,

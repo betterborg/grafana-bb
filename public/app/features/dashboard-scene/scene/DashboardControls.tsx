@@ -10,7 +10,7 @@ import {
   SceneObjectBase,
   type SceneComponentProps,
   SceneTimePicker,
-  SceneRefreshPicker,
+  type SceneRefreshPicker,
   SceneDebugger,
   VariableDependencyConfig,
   sceneGraph,
@@ -37,6 +37,7 @@ import { filterSectionRepeatLocalVariables } from '../variables/utils';
 
 import { DashboardDataLayerControls } from './DashboardDataLayerControls';
 import { DashboardLinksControls } from './DashboardLinksControls';
+import { DashboardRefreshPicker } from './DashboardRefreshPicker';
 import { type DashboardScene } from './DashboardScene';
 import { VariableControls } from './VariableControls';
 import { DashboardControlsButton } from './dashboard-controls-menu/DashboardControlsMenuButton';
@@ -149,7 +150,7 @@ export class DashboardControls extends SceneObjectBase<DashboardControlsState> {
   public constructor(state: Partial<DashboardControlsState>) {
     super({
       timePicker: state.timePicker ?? new SceneTimePicker({}),
-      refreshPicker: state.refreshPicker ?? new SceneRefreshPicker({}),
+      refreshPicker: state.refreshPicker ?? new DashboardRefreshPicker({}),
       ...state,
     });
 
