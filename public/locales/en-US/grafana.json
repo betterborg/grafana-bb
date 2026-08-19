@@ -5864,6 +5864,11 @@
       "errors-and-notices-tab": "Errors and notices",
       "json-tab": "JSON",
       "meta-tab": "Meta data",
+      "query-freshness-label": "Freshness",
+      "query-refresh-dashboard-auto": "Dashboard refresh interval is automatic",
+      "query-refresh-dashboard-interval": "Dashboard refreshes every {{interval}}",
+      "query-refresh-dashboard-off": "Automatic dashboard refresh is off",
+      "query-refresh-policy-label": "Refresh policy",
       "query-tab": "Query",
       "stats-tab": "Stats"
     },
