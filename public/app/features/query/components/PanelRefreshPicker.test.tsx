@@ -118,6 +118,7 @@ describe('PanelRefreshPicker', () => {
     expect(screen.queryByText('Refresh')).not.toBeInTheDocument();
     expect(screen.getByRole('combobox', { name: 'Panel refresh interval' })).toBeInTheDocument();
   });
+
 });
 
 async function selectOption(name: string) {
