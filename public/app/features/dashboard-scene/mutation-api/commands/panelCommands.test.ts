@@ -14,7 +14,7 @@ import type { DashboardScene } from '../../scene/DashboardScene';
 import { type AutoGridItem } from '../../scene/layout-auto-grid/AutoGridItem';
 import { AutoGridLayoutManager } from '../../scene/layout-auto-grid/AutoGridLayoutManager';
 import { DefaultGridLayoutManager } from '../../scene/layout-default/DefaultGridLayoutManager';
-import { getPanelRefreshFor } from '../../scene/panel-refresh/PanelRefresh';
+import { getPanelRefreshFor, hasPanelRefreshIndicator } from '../../scene/panel-refresh/PanelRefresh';
 import { PanelRefreshPolicy } from '../../scene/panel-refresh/policy';
 import { PanelTimeRange } from '../../scene/panel-timerange/PanelTimeRange';
 import { getUpdatedHoverHeader } from '../../scene/panel-timerange/utils';
@@ -110,7 +110,14 @@ function buildPanelScene(panels: VizPanel[] = [], elementMap: Record<string, num
       Object.assign(state, partial);
     }),
     updatePanelTitle: jest.fn((panel: VizPanel, title: string) => {
-      panel.setState({ title, hoverHeader: getUpdatedHoverHeader(title, panel.state.$timeRange?.state) });
+      panel.setState({
+        title,
+        hoverHeader: getUpdatedHoverHeader(
+          title,
+          panel.state.$timeRange?.state,
+          hasPanelRefreshIndicator(getPanelRefreshFor(panel)?.state.refresh)
+        ),
+      });
     }),
     changePanelPlugin: jest.fn(),
   };
@@ -142,7 +149,14 @@ function buildAutoGridPanelScene(panels: VizPanel[] = [], elementMap: Record<str
       Object.assign(state, partial);
     }),
     updatePanelTitle: jest.fn((panel: VizPanel, title: string) => {
-      panel.setState({ title, hoverHeader: getUpdatedHoverHeader(title, panel.state.$timeRange?.state) });
+      panel.setState({
+        title,
+        hoverHeader: getUpdatedHoverHeader(
+          title,
+          panel.state.$timeRange?.state,
+          hasPanelRefreshIndicator(getPanelRefreshFor(panel)?.state.refresh)
+        ),
+      });
     }),
     changePanelPlugin: jest.fn(),
   };
@@ -1066,6 +1080,56 @@ describe('Panel mutation commands', () => {
           expect(getPanelRefreshFor(panel)?.policy).toBe(expectedPolicy);
           expect(panel.state.$timeRange).toBe(interceptor);
           expect(panel.state.$timeRange).toBeInstanceOf(PanelTimeRange);
+        } finally {
+          config.featureToggles.panelRefreshOverride = previousToggle;
+        }
+      }
+    );
+
+    it.each([
+      ['an explicit policy', '30s', false],
+      ['an inherited policy', undefined, true],
+    ])(
+      'clears the last visible time override while preserving %s when refresh is omitted',
+      async (_description, refresh, expectedHoverHeader) => {
+        const previousToggle = config.featureToggles.panelRefreshOverride;
+        config.featureToggles.panelRefreshOverride = true;
+
+        try {
+          const scene = buildPanelScene();
+          const client = new DashboardMutationClient(scene);
+          const addResult = await client.execute({
+            type: 'ADD_PANEL',
+            payload: { panel: makePanelPayload('', 'timeseries', undefined, refresh) },
+          });
+          if (!addResult.success) {
+            throw new Error(`ADD_PANEL failed: ${addResult.error}`);
+          }
+          const panel = scene.state.body.getVizPanels()[0];
+          panel.setState({
+            $timeRange: new PanelTimeRange({ timeFrom: '2h' }),
+            hoverHeader: false,
+          });
+
+          const result = await client.execute({
+            type: 'UPDATE_PANEL',
+            payload: {
+              element: { name: getElementName(addResult.data) },
+              panel: {
+                kind: 'Panel',
+                spec: {
+                  data: {
+                    kind: 'QueryGroup',
+                    spec: { queryOptions: { timeFrom: '', timeShift: '' } },
+                  },
+                },
+              },
+            },
+          });
+
+          expect(result.success).toBe(true);
+          expect(getPanelRefreshFor(panel)?.state.refresh).toBe(refresh);
+          expect(panel.state.hoverHeader).toBe(expectedHoverHeader);
         } finally {
           config.featureToggles.panelRefreshOverride = previousToggle;
         }

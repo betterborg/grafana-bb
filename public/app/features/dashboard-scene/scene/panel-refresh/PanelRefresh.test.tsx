@@ -1,8 +1,8 @@
-import { act, render } from '@testing-library/react';
+import { act, fireEvent, render, screen } from '@testing-library/react';
 import { Subject } from 'rxjs';
 import { getWrapper } from 'test/test-utils';
 
-import { type DataQueryRequest, type DataSourceApi, LoadingState, type PanelData } from '@grafana/data';
+import { type DataQueryRequest, type DataSourceApi, dateTimeFormat, LoadingState, type PanelData } from '@grafana/data';
 import { getPanelPlugin } from '@grafana/data/test';
 import { config, setPluginImportUtils } from '@grafana/runtime';
 import { EmbeddedScene, LazyLoader, SceneTimeRange, SceneVariableSet, TestVariable, VizPanel } from '@grafana/scenes';
@@ -55,6 +55,78 @@ describe('PanelRefresh', () => {
     expect(getPanelRefreshPolicy('5s')).toBe(PanelRefreshPolicy.Interval);
     expect(getPanelRefreshInterval('5s')).toBe(5000);
     expect(getPanelRefreshPolicy('invalid')).toBe(PanelRefreshPolicy.Inherit);
+  });
+
+  it.each([
+    ['an interval', '30s', '30s'],
+    ['off', 'off', 'Off'],
+  ])('renders an always-visible localized indicator for %s policy', (_description, refresh, badge) => {
+    const { panel } = buildPanel(refresh, { title: '' });
+    const panelRefresh = getPanelRefreshFor(panel)!;
+    const Providers = getWrapper({});
+
+    expect(panel.state.hoverHeader).toBe(false);
+    expect(panel.state.titleItems).toContain(panelRefresh);
+
+    render(
+      <Providers>
+        <panel.Component model={panel} />
+      </Providers>
+    );
+
+    expect(screen.getByText(badge)).toBeInTheDocument();
+  });
+
+  it('shows policy and the latest streaming freshness in the tooltip', () => {
+    const { panel, runner } = buildPanel('30s', { title: '' });
+    const panelRefresh = getPanelRefreshFor(panel)!;
+    const Providers = getWrapper({});
+    const deactivate = panel.activate();
+    jest.setSystemTime(2000);
+
+    runner.setState({ data: panelData(LoadingState.Streaming, createRequest('streaming')) });
+    render(
+      <Providers>
+        <panelRefresh.Component model={panelRefresh} />
+      </Providers>
+    );
+    fireEvent.mouseEnter(screen.getByText('30s'));
+    act(() => jest.advanceTimersByTime(1000));
+
+    expect(screen.getByText('Panel refreshes every 30s')).toBeInTheDocument();
+    expect(screen.getByText(`Updated ${dateTimeFormat(2000, { timeZone: 'browser' })}`)).toBeInTheDocument();
+    deactivate();
+  });
+
+  it('restores hover-only chrome for inherited and feature-disabled policies without reconciliation loops', () => {
+    const inherited = buildPanel(undefined, { title: '' }).panel;
+    const inheritedRefresh = getPanelRefreshFor(inherited)!;
+    expect(inherited.state.hoverHeader).toBe(true);
+    expect(inherited.state.titleItems ?? []).not.toContain(inheritedRefresh);
+
+    const explicit = buildPanel('off', { title: '' }).panel;
+    const setState = jest.spyOn(explicit, 'setState');
+    setPanelRefreshFor(explicit, undefined);
+    const callsAfterRestore = setState.mock.calls.length;
+    setPanelRefreshFor(explicit, undefined);
+    expect(explicit.state.hoverHeader).toBe(true);
+    expect(explicit.state.titleItems ?? []).not.toContain(getPanelRefreshFor(explicit));
+    expect(setState).toHaveBeenCalledTimes(callsAfterRestore);
+
+    config.featureToggles.panelRefreshOverride = false;
+    const disabled = buildPanel('30s', { title: '' }).panel;
+    expect(disabled.state.hoverHeader).toBe(true);
+    expect(disabled.state.titleItems ?? []).not.toContain(getPanelRefreshFor(disabled));
+  });
+
+  it('keeps the indicator visible when the real dashboard title handler clears the panel title', () => {
+    const { dashboard, panel } = buildDashboardPanel('off');
+
+    dashboard.updatePanelTitle(panel, '');
+    expect(panel.state.hoverHeader).toBe(false);
+
+    setPanelRefreshFor(panel, undefined);
+    expect(panel.state.hoverHeader).toBe(true);
   });
 
   it('installs no timeout or viewport bypass for inherited and off policies', () => {
@@ -376,6 +448,7 @@ describe('PanelRefresh', () => {
 
 interface BuildPanelOptions {
   panelTimeRange?: PanelTimeRange;
+  title?: string;
   variables?: SceneVariableSet;
 }
 
@@ -390,7 +463,7 @@ function buildPanel(refresh?: string, options: BuildPanelOptions = {}) {
   const panel = new VizPanel({
     key: 'panel-1',
     pluginId: 'timeseries',
-    title: 'Panel',
+    title: options.title ?? 'Panel',
     $data: runner,
     $timeRange: options.panelTimeRange,
   });

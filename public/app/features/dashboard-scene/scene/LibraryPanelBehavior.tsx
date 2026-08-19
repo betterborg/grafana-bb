@@ -22,7 +22,7 @@ import { VizPanelLinks, VizPanelLinksMenu } from './PanelLinks';
 import { panelLinksBehavior } from './PanelMenuBehavior';
 import { PanelNotices } from './PanelNotices';
 import { DashboardGridItem } from './layout-default/DashboardGridItem';
-import { setPanelRefreshFor } from './panel-refresh/PanelRefresh';
+import { hasPanelRefreshIndicator, setPanelRefreshFor } from './panel-refresh/PanelRefresh';
 import { getPanelRefreshValue } from './panel-refresh/policy';
 import { PanelTimeRange } from './panel-timerange/PanelTimeRange';
 import { getUpdatedHoverHeader } from './panel-timerange/utils';
@@ -98,7 +98,7 @@ export class LibraryPanelBehavior extends SceneObjectBase<LibraryPanelBehaviorSt
 
     const vizPanelState: VizPanelState = {
       title,
-      hoverHeader: getUpdatedHoverHeader(title ?? '', timeRange?.state),
+      hoverHeader: getUpdatedHoverHeader(title ?? '', timeRange?.state, hasPanelRefreshIndicator(panelRefresh)),
       options: libPanelModel.options ?? {},
       fieldConfig: libPanelModel.fieldConfig,
       pluginId: libPanelModel.type,
