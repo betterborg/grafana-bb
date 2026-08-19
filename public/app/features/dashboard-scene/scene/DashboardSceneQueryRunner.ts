@@ -1,7 +1,15 @@
-import { LoadingState } from '@grafana/data';
-import { type QueryRunnerState, SceneQueryRunner, type SceneTimeRange } from '@grafana/scenes';
+import type { Unsubscribable } from 'rxjs';
 
-import { getRefreshOrigin, RefreshOrigin } from './refresh-origin';
+import { LoadingState } from '@grafana/data';
+import {
+  type QueryRunnerState,
+  SceneQueryRunner,
+  type SceneTimeRangeLike,
+  type SceneTimeRangeState,
+  sceneGraph,
+} from '@grafana/scenes';
+
+import { getAncestorRefreshOrigin, getRefreshOrigin, RefreshOrigin } from './refresh-origin';
 
 export interface DashboardQueryLifecycle {
   id: number;
@@ -15,10 +23,15 @@ interface PendingDashboardQueryLifecycle extends DashboardQueryLifecycle {
 
 interface QueuedQueryRun {
   lifecycle: PendingDashboardQueryLifecycle;
-  timeRange: SceneTimeRange;
+  timeRange: SceneTimeRangeLike;
 }
 
-type RunWithTimeRange = (timeRange: SceneTimeRange) => Promise<void>;
+interface CapturedRefreshOrigin {
+  origin: RefreshOrigin;
+  timeRange: SceneTimeRangeLike;
+}
+
+type RunWithTimeRange = (timeRange: SceneTimeRangeLike) => Promise<void>;
 
 export class DashboardSceneQueryRunner extends SceneQueryRunner {
   private nextLifecycleId = 0;
@@ -27,6 +40,9 @@ export class DashboardSceneQueryRunner extends SceneQueryRunner {
   private preparingLifecycleId?: number;
   private queuedRun?: QueuedQueryRun;
   private cancelledPreparations = new Set<number>();
+  private refreshOriginTimeRange?: SceneTimeRangeLike;
+  private refreshOriginSubscription?: Unsubscribable;
+  private capturedRefreshOrigins: CapturedRefreshOrigin[] = [];
   private externalViewportBypass = false;
   private panelRefreshViewportBypass = false;
 
@@ -36,9 +52,19 @@ export class DashboardSceneQueryRunner extends SceneQueryRunner {
     // SceneQueryRunner starts requests in a private async method after datasource resolution. Queueing that preparation
     // is the only way to prevent an older lookup from publishing the first request after a newer lifecycle has opened.
     const baseRunWithTimeRange: RunWithTimeRange = Reflect.get(this, 'runWithTimeRange').bind(this);
-    Reflect.set(this, 'runWithTimeRange', (timeRange: SceneTimeRange) =>
+    Reflect.set(this, 'runWithTimeRange', (timeRange: SceneTimeRangeLike) =>
       this.scheduleRunWithTimeRange(baseRunWithTimeRange, timeRange)
     );
+
+    this.addActivationHandler(() => {
+      this.subscribeToRefreshOrigins();
+      return () => {
+        this.refreshOriginSubscription?.unsubscribe();
+        this.refreshOriginSubscription = undefined;
+        this.refreshOriginTimeRange = undefined;
+        this.capturedRefreshOrigins = [];
+      };
+    });
 
     this.subscribeToState((newState, oldState) => {
       if (newState.data !== oldState.data) {
@@ -48,6 +74,7 @@ export class DashboardSceneQueryRunner extends SceneQueryRunner {
   }
 
   public override runQueries(): void {
+    this.subscribeToRefreshOrigins();
     const lifecycle = this.openLifecycle();
     this.nextRunLifecycle = lifecycle;
 
@@ -98,18 +125,21 @@ export class DashboardSceneQueryRunner extends SceneQueryRunner {
     super.bypassIsInViewChanged(this.externalViewportBypass || this.panelRefreshViewportBypass);
   }
 
-  private openLifecycle(): PendingDashboardQueryLifecycle {
+  private openLifecycle(origin = getRefreshOrigin() ?? RefreshOrigin.Global): PendingDashboardQueryLifecycle {
     const lifecycle = {
       id: ++this.nextLifecycleId,
-      origin: getRefreshOrigin() ?? RefreshOrigin.Global,
+      origin,
       previousRequestId: this.state.data?.request?.requestId,
     };
     this.pendingLifecycle = lifecycle;
     return lifecycle;
   }
 
-  private scheduleRunWithTimeRange(baseRunWithTimeRange: RunWithTimeRange, timeRange: SceneTimeRange): Promise<void> {
-    const lifecycle = this.nextRunLifecycle ?? this.openLifecycle();
+  private scheduleRunWithTimeRange(
+    baseRunWithTimeRange: RunWithTimeRange,
+    timeRange: SceneTimeRangeLike
+  ): Promise<void> {
+    const lifecycle = this.nextRunLifecycle ?? this.openLifecycle(this.consumeRefreshOrigin(timeRange));
     this.nextRunLifecycle = undefined;
 
     if (this.preparingLifecycleId !== undefined) {
@@ -118,6 +148,38 @@ export class DashboardSceneQueryRunner extends SceneQueryRunner {
     }
 
     return this.startRunWithTimeRange(baseRunWithTimeRange, { lifecycle, timeRange });
+  }
+
+  private subscribeToRefreshOrigins(): void {
+    if ((this.state.runQueriesMode ?? 'auto') !== 'auto') {
+      return;
+    }
+
+    // SceneQueryRunner defers time-range runs, so the synchronous refresh-origin scope is gone when its callback executes.
+    const timeRange = sceneGraph.getTimeRange(this);
+    if (this.refreshOriginTimeRange === timeRange) {
+      return;
+    }
+
+    this.refreshOriginSubscription?.unsubscribe();
+    this.refreshOriginTimeRange = timeRange;
+    this.refreshOriginSubscription = timeRange.subscribeToState(
+      (newState: SceneTimeRangeState, oldState: SceneTimeRangeState) => {
+        this.capturedRefreshOrigins.push({
+          origin: getAncestorRefreshOrigin(newState, oldState),
+          timeRange,
+        });
+      }
+    );
+  }
+
+  private consumeRefreshOrigin(timeRange: SceneTimeRangeLike): RefreshOrigin | undefined {
+    const index = this.capturedRefreshOrigins.findIndex((captured) => captured.timeRange === timeRange);
+    if (index === -1) {
+      return undefined;
+    }
+
+    return this.capturedRefreshOrigins.splice(index, 1)[0].origin;
   }
 
   private async startRunWithTimeRange(baseRunWithTimeRange: RunWithTimeRange, run: QueuedQueryRun): Promise<void> {

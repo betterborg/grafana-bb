@@ -2,8 +2,15 @@ import { Subject } from 'rxjs';
 import { waitFor } from 'test/test-utils';
 
 import { type DataQueryRequest, type DataSourceApi, LoadingState, type PanelData } from '@grafana/data';
-import { EmbeddedScene, type QueryRunnerState, SceneQueryRunner, SceneTimeRange } from '@grafana/scenes';
+import {
+  EmbeddedScene,
+  type QueryRunnerState,
+  SceneFlexLayout,
+  SceneQueryRunner,
+  SceneTimeRange,
+} from '@grafana/scenes';
 
+import { DashboardRefreshPicker } from './DashboardRefreshPicker';
 import { DashboardSceneQueryRunner } from './DashboardSceneQueryRunner';
 import { RefreshOrigin, runWithRefreshOrigin } from './refresh-origin';
 
@@ -169,6 +176,48 @@ describe('DashboardSceneQueryRunner', () => {
 
     expect(bypass.mock.calls).toEqual([[true], [true], [true], [false]]);
   });
+
+  describe('automatic refresh origins', () => {
+    beforeEach(() => {
+      jest.useFakeTimers();
+      jest.setSystemTime(new Date('2025-01-01T00:00:00Z'));
+      setDocumentVisibility('visible');
+    });
+
+    afterEach(() => {
+      jest.useRealTimers();
+      setDocumentVisibility('visible');
+    });
+
+    it('tracks interval refreshes as dashboard lifecycles across the deferred query callback', () => {
+      const { picker, runner, timeRange } = buildAutomaticRefreshScene();
+      const onRefresh = jest.spyOn(timeRange, 'onRefresh');
+      const deactivate = picker.activate();
+
+      jest.advanceTimersByTime(5000);
+      jest.advanceTimersByTime(1);
+
+      expect(onRefresh).toHaveBeenCalledTimes(1);
+      expect(runner.getPendingLifecycle()).toMatchObject({ id: 2, origin: RefreshOrigin.Dashboard });
+      deactivate();
+    });
+
+    it('tracks hidden-tab catch-up as a dashboard lifecycle across the deferred query callback', () => {
+      const { picker, runner } = buildAutomaticRefreshScene();
+      const deactivate = picker.activate();
+
+      setDocumentVisibility('hidden');
+      jest.advanceTimersByTime(5000);
+      expect(runner.getPendingLifecycle()).toMatchObject({ id: 1, origin: RefreshOrigin.Global });
+
+      setDocumentVisibility('visible');
+      document.dispatchEvent(new Event('visibilitychange'));
+      jest.advanceTimersByTime(1);
+
+      expect(runner.getPendingLifecycle()).toMatchObject({ id: 2, origin: RefreshOrigin.Dashboard });
+      deactivate();
+    });
+  });
 });
 
 function buildRunner(overrides: Partial<QueryRunnerState> = {}): DashboardSceneQueryRunner {
@@ -193,6 +242,23 @@ function createDatasource(): DataSourceApi {
     meta: { id: 'test' },
     getRef: () => ({ uid: 'test-datasource', type: 'test' }),
   } as DataSourceApi;
+}
+
+function buildAutomaticRefreshScene() {
+  const runner = new DashboardSceneQueryRunner({
+    datasource: { uid: 'test-datasource' },
+    queries: [{ refId: 'A' }],
+  });
+  const picker = new DashboardRefreshPicker({ refresh: '5s', intervals: ['5s'] });
+  const timeRange = new SceneTimeRange({ from: 'now-1h', to: 'now' });
+  new EmbeddedScene({
+    $timeRange: timeRange,
+    body: new SceneFlexLayout({ children: [runner, picker] }),
+  });
+  getDataSourceMock.mockReturnValue(new Promise<DataSourceApi>(() => {}));
+  runner.runQueries();
+
+  return { picker, runner, timeRange };
 }
 
 function request(requestId: string): DataQueryRequest {
@@ -226,4 +292,8 @@ function deferred<T>() {
     reject = rejectPromise;
   });
   return { promise, resolve, reject };
+}
+
+function setDocumentVisibility(visibility: DocumentVisibilityState) {
+  Object.defineProperty(document, 'visibilityState', { configurable: true, value: visibility });
 }
