@@ -38,6 +38,7 @@ import { hasSavedQueryReadPermissions } from '../../../explore/QueryLibrary/util
 import { ExpressionDatasourceUID } from '../../../expressions/types';
 import { getDatasourceSrv } from '../../../plugins/datasource_srv';
 import { PanelInspectDrawer } from '../../inspect/PanelInspectDrawer';
+import { getPanelRefreshFor, setPanelRefreshFor } from '../../scene/panel-refresh/PanelRefresh';
 import { PanelTimeRange } from '../../scene/panel-timerange/PanelTimeRange';
 import { getUpdatedHoverHeader } from '../../scene/panel-timerange/utils';
 import { getDashboardSceneFor, getQueryRunnerFor } from '../../utils/utils';
@@ -201,6 +202,7 @@ export class PanelDataQueriesTab extends SceneObjectBase<PanelDataQueriesTabStat
       queries,
       maxDataPoints: queryRunner.state.maxDataPoints,
       minInterval: queryRunner.state.minInterval,
+      refresh: getPanelRefreshFor(panel)?.state.refresh,
       timeRange: timeRangeOpts,
     };
   }
@@ -270,6 +272,7 @@ export class PanelDataQueriesTab extends SceneObjectBase<PanelDataQueriesTabStat
     }
 
     panel.setState(panelStateUpdate);
+    setPanelRefreshFor(panel, options.refresh ?? undefined);
 
     dataObj.setState(dataObjStateUpdate);
     dataObj.runQueries();

@@ -3,10 +3,13 @@ import React, { useState, type ChangeEvent, type FocusEvent, useCallback } from 
 
 import { rangeUtil, type PanelData, type DataSourceApi, type GrafanaTheme2 } from '@grafana/data';
 import { Trans, t } from '@grafana/i18n';
+import { config } from '@grafana/runtime';
 import { Input, InlineSwitch, useStyles2, InlineLabel } from '@grafana/ui';
 import { QueryOperationRow } from 'app/core/components/QueryOperationRow/QueryOperationRow';
 import { trackQueryOptionsToggle } from 'app/features/dashboard-scene/panel-edit/PanelEditNext/tracking';
 import { type QueryGroupOptions } from 'app/types/query';
+
+import { PanelRefreshPicker } from './PanelRefreshPicker';
 
 interface Props {
   options: QueryGroupOptions;
@@ -138,6 +141,16 @@ export const QueryGroupOptionsEditor = React.memo(({ options, dataSource, data, 
           minInterval,
         });
       }
+    },
+    [onChange, options]
+  );
+
+  const onRefreshChange = useCallback(
+    (refresh: string | undefined) => {
+      onChange({
+        ...options,
+        refresh,
+      });
     },
     [onChange, options]
   );
@@ -340,6 +353,11 @@ export const QueryGroupOptionsEditor = React.memo(({ options, dataSource, data, 
         {renderIntervalOption()}
         {renderCacheTimeoutOption()}
         {renderQueryCachingTTLOption()}
+        {config.featureToggles.panelRefreshOverride && (
+          <div className={styles.fullWidth}>
+            <PanelRefreshPicker value={options.refresh} onChange={onRefreshChange} />
+          </div>
+        )}
 
         <InlineLabel
           htmlFor="relative-time-input"
@@ -432,6 +450,10 @@ function getStyles(theme: GrafanaTheme2) {
     }),
     firstColumn: css({
       gridColumn: 1,
+    }),
+    fullWidth: css({
+      gridColumn: '1 / -1',
+      minWidth: 0,
     }),
     collapsedText: css({
       marginLeft: theme.spacing(2),
