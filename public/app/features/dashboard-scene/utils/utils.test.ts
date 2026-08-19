@@ -13,6 +13,7 @@ import {
 } from '@grafana/scenes';
 import { type Dashboard, type Panel, type RowPanel } from '@grafana/schema';
 
+import { getEditableElementFor } from '../actions/utils/getEditableElementFor';
 import { DashboardScene } from '../scene/DashboardScene';
 import { DashboardSceneQueryRunner } from '../scene/DashboardSceneQueryRunner';
 import { AutoGridItem } from '../scene/layout-auto-grid/AutoGridItem';
@@ -22,6 +23,8 @@ import { DashboardGridItem } from '../scene/layout-default/DashboardGridItem';
 import { DefaultGridLayoutManager } from '../scene/layout-default/DefaultGridLayoutManager';
 import { RowItem } from '../scene/layout-rows/RowItem';
 import { TabItem } from '../scene/layout-tabs/TabItem';
+import { getPanelRefreshFor, PanelRefresh } from '../scene/panel-refresh/PanelRefresh';
+import { PanelRefreshPolicy } from '../scene/panel-refresh/policy';
 import { PanelTimeRange } from '../scene/panel-timerange/PanelTimeRange';
 
 import { activateFullSceneTree } from './test-utils';
@@ -48,8 +51,12 @@ describe('utils', () => {
     } as DataSourceSrv);
 
     try {
-      const provider = getDefaultVizPanel().state.$data as SceneDataTransformer;
+      const panel = getDefaultVizPanel();
+      const provider = panel.state.$data as SceneDataTransformer;
       expect(provider.state.$data).toBeInstanceOf(DashboardSceneQueryRunner);
+      expect(panel.state.$behaviors?.filter((behavior) => behavior instanceof PanelRefresh)).toHaveLength(1);
+      expect(getPanelRefreshFor(panel)?.policy).toBe(PanelRefreshPolicy.Inherit);
+      expect(getEditableElementFor(panel)?.isEditableDashboardElement).toBe(true);
     } finally {
       setDataSourceSrv(originalDataSourceSrv);
     }

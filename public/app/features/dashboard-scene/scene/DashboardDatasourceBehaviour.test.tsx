@@ -17,6 +17,7 @@ import { SHARED_DASHBOARD_QUERY, DASHBOARD_DATASOURCE_PLUGIN_ID } from 'app/plug
 import { MIXED_DATASOURCE_NAME } from 'app/plugins/datasource/mixed/MixedDataSource';
 
 import { activateFullSceneTree } from '../utils/test-utils';
+import { getDefaultVizPanel, getQueryRunnerFor } from '../utils/utils';
 
 import { DashboardDatasourceBehaviour } from './DashboardDatasourceBehaviour';
 import { DashboardScene } from './DashboardScene';
@@ -108,7 +109,7 @@ jest.mock('@grafana/runtime', () => ({
 
         return null;
       },
-      getInstanceSettings: jest.fn().mockResolvedValue({ uid: 'ds1' }),
+      getInstanceSettings: jest.fn().mockReturnValue({ uid: 'ds1', type: 'test' }),
     };
   },
 }));
@@ -1759,6 +1760,52 @@ describe('DashboardDatasourceBehaviour', () => {
       if (!shouldRun && dependentRefresh === '5s') {
         expect(getPanelRefreshFor(context.dependentPanel)?.['timeout']).toBe(deadline);
       }
+    });
+
+    it('records refresh origins for a newly created source panel', () => {
+      const sourcePanel = getDefaultVizPanel();
+      sourcePanel.setState({ key: 'panel-1' });
+      const sourceRunner = getQueryRunnerFor(sourcePanel);
+      if (!(sourceRunner instanceof DashboardSceneQueryRunner)) {
+        throw new Error('Expected a dashboard query runner for a newly created panel');
+      }
+      const dependentBehavior = new DashboardDatasourceBehaviour({});
+      const dependentRunner = new DashboardSceneQueryRunner({
+        datasource: { uid: SHARED_DASHBOARD_QUERY },
+        queries: [{ refId: 'A', panelId: 1 }],
+        runQueriesMode: 'manual',
+        $behaviors: [dependentBehavior],
+      });
+      const dependentPanel = new VizPanel({
+        title: 'Off dependent',
+        pluginId: 'table',
+        key: 'panel-2',
+        $data: new SceneDataTransformer({ transformations: [], $data: dependentRunner }),
+      });
+      setPanelRefreshFor(dependentPanel, 'off');
+      new DashboardScene({
+        title: 'New source panel test',
+        uid: 'new-source-panel-test',
+        meta: { canEdit: true },
+        body: DefaultGridLayoutManager.fromVizPanels([sourcePanel, dependentPanel]),
+      });
+      dependentBehavior.activate();
+      const origins: Array<RefreshOrigin | undefined> = [];
+      const runQueries = jest
+        .spyOn(dependentRunner, 'runQueries')
+        .mockImplementation(() => origins.push(getRefreshOrigin()));
+
+      publishSourceRequest(sourceRunner, RefreshOrigin.Dashboard, 'dashboard-request');
+
+      expect(sourceRunner.getLifecycleForRequest('dashboard-request')).toMatchObject({
+        origin: RefreshOrigin.Dashboard,
+      });
+      expect(runQueries).not.toHaveBeenCalled();
+
+      publishSourceRequest(sourceRunner, RefreshOrigin.Global, 'global-request');
+
+      expect(sourceRunner.getLifecycleForRequest('global-request')).toMatchObject({ origin: RefreshOrigin.Global });
+      expect(origins).toEqual([RefreshOrigin.Global]);
     });
 
     it('uses a completed transformed source lifecycle to filter and propagate its origin', () => {
