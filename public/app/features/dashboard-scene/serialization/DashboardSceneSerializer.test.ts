@@ -29,6 +29,8 @@ import { DASHBOARD_SCHEMA_VERSION } from 'app/features/dashboard/state/Dashboard
 
 import { buildPanelEditScene } from '../panel-edit/PanelEditor';
 import { type DashboardScene } from '../scene/DashboardScene';
+import { setPanelRefreshFor } from '../scene/panel-refresh/PanelRefresh';
+import { dashboardSceneGraph } from '../utils/dashboardSceneGraph';
 import { serializeIgnorePredefinedVariables } from '../utils/predefinedVariableDenyList';
 import { getTestDashboardSceneFromSaveModel } from '../utils/test-utils';
 import { findVizPanelByKey } from '../utils/utils';
@@ -72,6 +74,12 @@ jest.mock('@grafana/runtime', () => ({
 }));
 
 describe('DashboardSceneSerializer', () => {
+  const originalPanelRefreshOverride = config.featureToggles.panelRefreshOverride;
+
+  afterEach(() => {
+    config.featureToggles.panelRefreshOverride = originalPanelRefreshOverride;
+  });
+
   describe('v1 schema', () => {
     it('Can detect no changes', () => {
       const dashboard = setup();
@@ -408,6 +416,56 @@ describe('DashboardSceneSerializer', () => {
             { type: 'query', datasource: 'elasticsearch' },
           ],
         });
+      });
+
+      it('classifies explicit panel refresh overrides', () => {
+        config.featureToggles.panelRefreshOverride = true;
+        const dashboard = setup({
+          refresh: '30s',
+          panels: Array.from({ length: 6 }, (_, index) => ({
+            id: index + 1,
+            type: 'timeseries',
+          })),
+        });
+        setRefreshPolicies(dashboard, '30s', ['10s', 'off', '1m', '30s', undefined, 'invalid']);
+
+        expect(dashboard.getTrackingInformation()).toMatchObject({
+          panel_refresh_explicit_count: 4,
+          panel_refresh_off_count: 1,
+          panel_refresh_faster_count: 1,
+          panel_refresh_slower_count: 1,
+          panel_refresh_equal_count: 1,
+        });
+      });
+
+      it('classifies every interval override as faster when dashboard refresh is off', () => {
+        config.featureToggles.panelRefreshOverride = true;
+        const dashboard = setup({
+          refresh: '',
+          panels: Array.from({ length: 4 }, (_, index) => ({
+            id: index + 1,
+            type: 'timeseries',
+          })),
+        });
+        setRefreshPolicies(dashboard, '', ['10s', '1m', 'off', undefined]);
+
+        expect(dashboard.getTrackingInformation()).toMatchObject({
+          panel_refresh_explicit_count: 3,
+          panel_refresh_off_count: 1,
+          panel_refresh_faster_count: 2,
+          panel_refresh_slower_count: 0,
+          panel_refresh_equal_count: 0,
+        });
+      });
+
+      it('omits panel refresh tracking when the feature is disabled', () => {
+        config.featureToggles.panelRefreshOverride = false;
+        const dashboard = setup({ refresh: '30s' });
+        setRefreshPolicies(dashboard, '30s', ['10s']);
+
+        expect(dashboard.getTrackingInformation()).not.toEqual(
+          expect.objectContaining({ panel_refresh_explicit_count: expect.anything() })
+        );
       });
     });
 
@@ -834,6 +892,30 @@ describe('DashboardSceneSerializer', () => {
             datasource: 1,
           },
         });
+      });
+
+      it('classifies explicit panel refresh overrides', () => {
+        config.featureToggles.panelRefreshOverride = true;
+        const dashboard = setupV2(nestedDashboard as Partial<DashboardV2Spec>);
+        setRefreshPolicies(dashboard, '30s', ['10s', 'off', '1m', '30s', undefined, 'invalid']);
+
+        expect(dashboard.getTrackingInformation()).toMatchObject({
+          panel_refresh_explicit_count: 4,
+          panel_refresh_off_count: 1,
+          panel_refresh_faster_count: 1,
+          panel_refresh_slower_count: 1,
+          panel_refresh_equal_count: 1,
+        });
+      });
+
+      it('omits panel refresh tracking when the feature is disabled', () => {
+        config.featureToggles.panelRefreshOverride = false;
+        const dashboard = setupV2(nestedDashboard as Partial<DashboardV2Spec>);
+        setRefreshPolicies(dashboard, '30s', ['10s']);
+
+        expect(dashboard.getTrackingInformation()).not.toEqual(
+          expect.objectContaining({ panel_refresh_explicit_count: expect.anything() })
+        );
       });
     });
 
@@ -1625,4 +1707,15 @@ function setup(override: Partial<Dashboard> = {}) {
 
 function setupV2(spec?: Partial<DashboardV2Spec>) {
   return getTestDashboardSceneFromSaveModel(spec);
+}
+
+function setRefreshPolicies(
+  dashboard: DashboardScene,
+  dashboardRefresh: string,
+  panelRefreshes: Array<string | undefined>
+) {
+  dashboardSceneGraph.getRefreshPicker(dashboard)?.setState({ refresh: dashboardRefresh });
+  dashboardSceneGraph.getVizPanels(dashboard).forEach((panel, index) => {
+    setPanelRefreshFor(panel, panelRefreshes[index]);
+  });
 }

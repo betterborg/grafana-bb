@@ -5,6 +5,7 @@ import { type GroupConditionConditionType } from '../conditional-rendering/group
 import {
   type DashboardTrackingInfo,
   type DynamicDashboardsTrackingInformation,
+  type PanelRefreshTrackingInfo,
 } from '../serialization/DashboardSceneSerializer';
 
 import { type GlobalVariablesMode } from './predefinedVariableDenyList';
@@ -63,7 +64,7 @@ export const DashboardInteractions = {
     ) & {
       // size of the saved edit (diffs between the initial and saved models); scene save path only
       diff_count?: number;
-    }
+    } & Partial<PanelRefreshTrackingInfo>
   ) => {
     reportDashboardInteraction(isNew ? 'created' : 'saved', properties, 'grafana_dashboard');
   },
