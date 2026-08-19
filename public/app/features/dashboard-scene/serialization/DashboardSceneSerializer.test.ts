@@ -606,6 +606,44 @@ describe('DashboardSceneSerializer', () => {
       expect(result.diffCount).toBe(1);
     });
 
+    it.each([
+      ['an interval', '30s', true],
+      ['off', 'off', true],
+      ['an interval while scheduling is disabled', '30s', false],
+      ['off while scheduling is disabled', 'off', false],
+    ] as const)('preserves %s through dashboard import and export', (_description, refresh, featureEnabled) => {
+      const previousToggle = config.featureToggles.panelRefreshOverride;
+
+      try {
+        config.featureToggles.panelRefreshOverride = featureEnabled;
+        const panelSpec = defaultPanelSpec();
+        const dashboard = setupV2({
+          elements: {
+            'panel-1': {
+              kind: 'Panel',
+              spec: {
+                ...panelSpec,
+                id: 1,
+                data: {
+                  kind: 'QueryGroup',
+                  spec: {
+                    ...panelSpec.data.spec,
+                    queryOptions: { ...panelSpec.data.spec.queryOptions, refresh },
+                  },
+                },
+              },
+            },
+          },
+        });
+
+        const exported = new V2DashboardSerializer().getSaveModel(dashboard);
+
+        expect(getPanelElement(exported, 'panel-1')?.spec.data.spec.queryOptions.refresh).toBe(refresh);
+      } finally {
+        config.featureToggles.panelRefreshOverride = previousToggle;
+      }
+    });
+
     describe('variable changes', () => {
       it('Can detect variable change', () => {
         const dashboard = setupV2();

@@ -64,6 +64,7 @@ import { AutoGridLayoutManager } from './layout-auto-grid/AutoGridLayoutManager'
 import { DashboardGridItem } from './layout-default/DashboardGridItem';
 import { DefaultGridLayoutManager } from './layout-default/DefaultGridLayoutManager';
 import { RowActions } from './layout-default/row-actions/RowActions';
+import { setPanelRefreshFor } from './panel-refresh/PanelRefresh';
 import { PanelTimeRange } from './panel-timerange/PanelTimeRange';
 import { type DashboardSceneState } from './types/dashboard';
 
@@ -762,6 +763,30 @@ describe('DashboardScene', () => {
         scene.copyPanel(vizPanel as VizPanel);
 
         expect(store.exists(LS_PANEL_COPY_KEY)).toBe(true);
+      });
+
+      it.each([
+        ['an interval', '30s'],
+        ['off', 'off'],
+      ] as const)('Should preserve %s panel refresh when copying in the v2 format', (_policy, refresh) => {
+        const previousLayoutsToggle = config.featureToggles.dashboardNewLayouts;
+
+        try {
+          config.featureToggles.dashboardNewLayouts = true;
+          const vizPanel = findVizPanelByKey(scene, 'panel-1')!;
+          setPanelRefreshFor(vizPanel, refresh);
+
+          scene.copyPanel(vizPanel);
+
+          const clipboard = JSON.parse(store.get(LS_PANEL_COPY_KEY));
+          const element = Object.values(clipboard.elements)[0] as DashboardV2Spec['elements'][string];
+          expect(element.kind).toBe('Panel');
+          if (element.kind === 'Panel') {
+            expect(element.spec.data.spec.queryOptions.refresh).toBe(refresh);
+          }
+        } finally {
+          config.featureToggles.dashboardNewLayouts = previousLayoutsToggle;
+        }
       });
 
       it('Should copy a library viz panel', () => {

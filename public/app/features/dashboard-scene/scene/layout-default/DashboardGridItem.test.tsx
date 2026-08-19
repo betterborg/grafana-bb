@@ -1,13 +1,15 @@
 import { waitFor } from '@testing-library/react';
 
 import { getPanelPlugin } from '@grafana/data/test';
-import { setPluginImportUtils } from '@grafana/runtime';
+import { config, setPluginImportUtils } from '@grafana/runtime';
 import { SceneGridLayout, SceneVariableSet, TestVariable, VizPanel } from '@grafana/scenes';
 import { ALL_VARIABLE_TEXT, ALL_VARIABLE_VALUE } from 'app/features/variables/constants';
 
 import { DashboardEditActionEvent } from '../../sidebar/events';
 import { activateFullSceneTree, buildPanelRepeaterScene } from '../../utils/test-utils';
 import { DashboardScene } from '../DashboardScene';
+import { getPanelRefreshFor, setPanelRefreshFor } from '../panel-refresh/PanelRefresh';
+import { PanelTimeRange } from '../panel-timerange/PanelTimeRange';
 
 import { DashboardGridItem, type DashboardGridItemState } from './DashboardGridItem';
 import { DefaultGridLayoutManager } from './DefaultGridLayoutManager';
@@ -46,6 +48,33 @@ describe('PanelRepeaterGridItem', () => {
 
     expect(panel1.state.repeatSourceKey).toBe(undefined);
     expect(panel2.state.repeatSourceKey).toBe(repeater.state.body.state.key);
+  });
+
+  it.each(['30s', 'off'])('preserves %s refresh with independent runtime objects in every repeat', (refresh) => {
+    const previousToggle = config.featureToggles.panelRefreshOverride;
+    let deactivate: (() => void) | undefined;
+
+    try {
+      config.featureToggles.panelRefreshOverride = true;
+      const source = new VizPanel({ title: 'Panel $server', pluginId: 'timeseries', key: 'panel-1' });
+      setPanelRefreshFor(source, refresh);
+      const { scene, repeater } = buildPanelRepeaterScene({ variableQueryTime: 0 }, source);
+
+      deactivate = activateFullSceneTree(scene);
+
+      const panels = [repeater.state.body, ...(repeater.state.repeatedPanels ?? [])];
+      const controllers = panels.map((panel) => getPanelRefreshFor(panel));
+      const timeRanges = panels.map((panel) => panel.state.$timeRange);
+
+      expect(controllers.every(Boolean)).toBe(true);
+      expect(controllers.map((controller) => controller?.state.refresh)).toEqual(panels.map(() => refresh));
+      expect(new Set(controllers).size).toBe(panels.length);
+      expect(timeRanges.every((timeRange) => timeRange instanceof PanelTimeRange)).toBe(true);
+      expect(new Set(timeRanges).size).toBe(panels.length);
+    } finally {
+      deactivate?.();
+      config.featureToggles.panelRefreshOverride = previousToggle;
+    }
   });
 
   it('Should wait for variable to load', async () => {

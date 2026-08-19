@@ -1,3 +1,4 @@
+import { config } from '@grafana/runtime';
 import {
   ConstantVariable,
   CustomVariable,
@@ -15,6 +16,8 @@ import { getQueryRunnerFor } from '../../utils/utils';
 import { DashboardScene } from '../DashboardScene';
 import { DashboardGridItem } from '../layout-default/DashboardGridItem';
 import { DefaultGridLayoutManager } from '../layout-default/DefaultGridLayoutManager';
+import { getPanelRefreshFor, setPanelRefreshFor } from '../panel-refresh/PanelRefresh';
+import { PanelTimeRange } from '../panel-timerange/PanelTimeRange';
 import { type DashboardSceneState } from '../types/dashboard';
 
 import { AutoGridItem } from './AutoGridItem';
@@ -215,9 +218,11 @@ describe('AutoGridItem repeat + conditional rendering', () => {
   function setupDashboardWithAutoGridItem({
     repeatByValues,
     conditionalGroup,
+    refresh,
   }: {
     repeatByValues: boolean;
     conditionalGroup: ConditionalRenderingGroup;
+    refresh?: string;
   }) {
     const valuesVar = new CustomVariable({
       name: 'Values',
@@ -253,6 +258,9 @@ describe('AutoGridItem repeat + conditional rendering', () => {
       pluginId: 'table',
       $data: new SceneQueryRunner({ key: 'data-query-runner', queries: [{ refId: 'A' }] }),
     });
+    if (refresh) {
+      setPanelRefreshFor(panel, refresh);
+    }
 
     const gridItem = new AutoGridItem({
       key: 'grid-item-1',
@@ -274,6 +282,31 @@ describe('AutoGridItem repeat + conditional rendering', () => {
 
     return { gridItem, valuesVar, hideVar, regionVar };
   }
+
+  it.each(['30s', 'off'])('preserves %s refresh with independent runtime objects in every repeat', (refresh) => {
+    const previousToggle = config.featureToggles.panelRefreshOverride;
+
+    try {
+      config.featureToggles.panelRefreshOverride = true;
+      const { gridItem } = setupDashboardWithAutoGridItem({
+        repeatByValues: true,
+        conditionalGroup: ConditionalRenderingGroup.createEmpty(),
+        refresh,
+      });
+
+      const panels = [gridItem.state.body, ...(gridItem.state.repeatedPanels ?? [])];
+      const controllers = panels.map((panel) => getPanelRefreshFor(panel));
+      const timeRanges = panels.map((panel) => panel.state.$timeRange);
+
+      expect(controllers.every(Boolean)).toBe(true);
+      expect(controllers.map((controller) => controller?.state.refresh)).toEqual(panels.map(() => refresh));
+      expect(new Set(controllers).size).toBe(panels.length);
+      expect(timeRanges.every((timeRange) => timeRange instanceof PanelTimeRange)).toBe(true);
+      expect(new Set(timeRanges).size).toBe(panels.length);
+    } finally {
+      config.featureToggles.panelRefreshOverride = previousToggle;
+    }
+  });
 
   it('repeated panel respects conditional rendering based on non-repeat variable', () => {
     const group = createGroupWithVariableEquals('Hide', 'false');

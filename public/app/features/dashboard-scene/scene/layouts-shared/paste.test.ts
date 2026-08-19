@@ -1,6 +1,6 @@
 import { store } from '@grafana/data';
 import { getPanelPlugin } from '@grafana/data/test';
-import { setPluginImportUtils } from '@grafana/runtime';
+import { config, setPluginImportUtils } from '@grafana/runtime';
 import { SceneTimeRange } from '@grafana/scenes';
 import {
   type AutoGridLayoutItemKind,
@@ -13,6 +13,8 @@ import { DashboardScene } from '../DashboardScene';
 import { AutoGridItem } from '../layout-auto-grid/AutoGridItem';
 import { AutoGridLayoutManager } from '../layout-auto-grid/AutoGridLayoutManager';
 import { DashboardGridItem } from '../layout-default/DashboardGridItem';
+import { getPanelRefreshFor } from '../panel-refresh/PanelRefresh';
+import { PanelTimeRange } from '../panel-timerange/PanelTimeRange';
 
 import { type PanelStore, getAutoGridItemFromClipboard, getDashboardGridItemFromClipboard } from './paste';
 
@@ -28,7 +30,7 @@ function buildDashboardScene(): DashboardScene {
   });
 }
 
-function buildAutoGridClipboard(): PanelStore & { gridItem: AutoGridLayoutItemKind } {
+function buildAutoGridClipboard(refresh?: string): PanelStore & { gridItem: AutoGridLayoutItemKind } {
   return {
     elements: {
       'panel-auto-grid': {
@@ -38,7 +40,7 @@ function buildAutoGridClipboard(): PanelStore & { gridItem: AutoGridLayoutItemKi
           title: 'Test Panel Auto Grid',
           description: '',
           links: [],
-          data: { kind: 'QueryGroup', spec: { queries: [], transformations: [], queryOptions: {} } },
+          data: { kind: 'QueryGroup', spec: { queries: [], transformations: [], queryOptions: { refresh } } },
           vizConfig: {
             kind: 'VizConfig',
             group: 'timeseries',
@@ -71,7 +73,7 @@ function buildAutoGridClipboard(): PanelStore & { gridItem: AutoGridLayoutItemKi
   };
 }
 
-function buildCustomGridClipboard(): PanelStore & { gridItem: GridLayoutItemKind } {
+function buildCustomGridClipboard(refresh?: string): PanelStore & { gridItem: GridLayoutItemKind } {
   return {
     elements: {
       'panel-custom-grid': {
@@ -81,7 +83,7 @@ function buildCustomGridClipboard(): PanelStore & { gridItem: GridLayoutItemKind
           title: 'Test Panel Custom Grid',
           description: '',
           links: [],
-          data: { kind: 'QueryGroup', spec: { queries: [], transformations: [], queryOptions: {} } },
+          data: { kind: 'QueryGroup', spec: { queries: [], transformations: [], queryOptions: { refresh } } },
           vizConfig: {
             kind: 'VizConfig',
             group: 'table',
@@ -125,6 +127,46 @@ describe('getAutoGridItemFromClipboard(dashboardScene)', () => {
     const result = getAutoGridItemFromClipboard(dashboardScene);
 
     expect(result).toBeInstanceOf(AutoGridItem);
+  });
+
+  it.each([
+    { refresh: '30s', buildClipboard: buildAutoGridClipboard },
+    { refresh: 'off', buildClipboard: buildCustomGridClipboard },
+  ])('preserves $refresh with independent runtime objects', ({ refresh, buildClipboard }) => {
+    const previousToggle = config.featureToggles.panelRefreshOverride;
+
+    try {
+      config.featureToggles.panelRefreshOverride = true;
+      const { dashboardScene } = setup(buildClipboard(refresh));
+
+      const first = getAutoGridItemFromClipboard(dashboardScene).state.body;
+      const second = getAutoGridItemFromClipboard(dashboardScene).state.body;
+
+      expect(getPanelRefreshFor(first)?.state.refresh).toBe(refresh);
+      expect(getPanelRefreshFor(second)?.state.refresh).toBe(refresh);
+      expect(getPanelRefreshFor(first)).not.toBe(getPanelRefreshFor(second));
+      expect(first.state.$timeRange).toBeInstanceOf(PanelTimeRange);
+      expect(second.state.$timeRange).toBeInstanceOf(PanelTimeRange);
+      expect(first.state.$timeRange).not.toBe(second.state.$timeRange);
+    } finally {
+      config.featureToggles.panelRefreshOverride = previousToggle;
+    }
+  });
+
+  it('preserves refresh when panel refresh scheduling is disabled', () => {
+    const previousToggle = config.featureToggles.panelRefreshOverride;
+
+    try {
+      config.featureToggles.panelRefreshOverride = false;
+      const { dashboardScene } = setup(buildAutoGridClipboard('30s'));
+
+      const panel = getAutoGridItemFromClipboard(dashboardScene).state.body;
+
+      expect(getPanelRefreshFor(panel)?.state.refresh).toBe('30s');
+      expect(panel.state.$timeRange).toBeUndefined();
+    } finally {
+      config.featureToggles.panelRefreshOverride = previousToggle;
+    }
   });
 
   describe('when the item from clipboard is an AutoGridItem', () => {
@@ -314,6 +356,7 @@ describe('getDashboardGridItemFromClipboard(dashboardScene, gridCell)', () => {
       gridPos: { x: 0, y: 0, w: 12, h: 8 },
       fieldConfig: { defaults: {}, overrides: [] },
       options: {},
+      refresh: 'off',
     };
 
     test('getAutoGridItemFromClipboard wraps v1 panel in AutoGridItem', () => {
@@ -325,6 +368,7 @@ describe('getDashboardGridItemFromClipboard(dashboardScene, gridCell)', () => {
       expect(result).toBeInstanceOf(AutoGridItem);
       expect(result.state.body.state.title).toBe('Copied V1');
       expect(result.state.body.state.pluginId).toBe('timeseries');
+      expect(getPanelRefreshFor(result.state.body)?.state.refresh).toBe('off');
     });
 
     test('getDashboardGridItemFromClipboard maps v1 panel to DashboardGridItem', () => {
@@ -337,6 +381,7 @@ describe('getDashboardGridItemFromClipboard(dashboardScene, gridCell)', () => {
       expect(result.state.x).toBe(3);
       expect(result.state.y).toBe(4);
       expect(result.state.body.state.title).toBe('Copied V1');
+      expect(getPanelRefreshFor(result.state.body)?.state.refresh).toBe('off');
     });
   });
 });
