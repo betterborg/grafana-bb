@@ -57,6 +57,8 @@ import { RowActions } from '../scene/layout-default/row-actions/RowActions';
 import { RowItem } from '../scene/layout-rows/RowItem';
 import { RowsLayoutManager } from '../scene/layout-rows/RowsLayoutManager';
 import { getIsLazy } from '../scene/layouts-shared/utils';
+import { setPanelRefreshFor } from '../scene/panel-refresh/PanelRefresh';
+import { getPanelRefreshValue } from '../scene/panel-refresh/policy';
 import { PanelTimeRange } from '../scene/panel-timerange/PanelTimeRange';
 import { setDashboardPanelContext } from '../scene/setDashboardPanelContext';
 import { type DashboardLayoutManager } from '../scene/types/DashboardLayoutManager';
@@ -454,6 +456,7 @@ export function createDashboardSceneFromDashboardModel(
 }
 
 export function buildGridItemForPanel(panel: PanelModel): DashboardGridItem {
+  const panelRefresh = getPanelRefreshValue(panel);
   const repeatOptions: Partial<{ variableName: string; repeatDirection: RepeatDirection }> = panel.repeat
     ? {
         variableName: panel.repeat,
@@ -519,7 +522,12 @@ export function buildGridItemForPanel(panel: PanelModel): DashboardGridItem {
     });
   }
 
-  if (panel.timeFrom || panel.timeShift || panel.timeCompare) {
+  if (
+    panel.timeFrom ||
+    panel.timeShift ||
+    panel.timeCompare ||
+    (config.featureToggles.panelRefreshOverride && panelRefresh)
+  ) {
     vizPanelState.$timeRange = new PanelTimeRange({
       timeFrom: panel.timeFrom,
       timeShift: panel.timeShift,
@@ -544,6 +552,7 @@ export function buildGridItemForPanel(panel: PanelModel): DashboardGridItem {
   }
 
   const body = new VizPanel(vizPanelState);
+  setPanelRefreshFor(body, panelRefresh);
 
   return new DashboardGridItem({
     key: `grid-item-${panel.id}`,

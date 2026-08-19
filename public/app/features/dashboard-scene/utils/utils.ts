@@ -37,6 +37,7 @@ import { VizPanelSubHeader } from '../scene/VizPanelSubHeader';
 import { AutoGridLayoutManager } from '../scene/layout-auto-grid/AutoGridLayoutManager';
 import { type DashboardGridItem } from '../scene/layout-default/DashboardGridItem';
 import { DefaultGridLayoutManager } from '../scene/layout-default/DefaultGridLayoutManager';
+import { setPanelRefreshFor } from '../scene/panel-refresh/PanelRefresh';
 import { setDashboardPanelContext } from '../scene/setDashboardPanelContext';
 import { type DashboardDropTarget } from '../scene/types/DashboardDropTarget';
 import { type DashboardSceneState } from '../scene/types/dashboard';
@@ -296,7 +297,7 @@ export function getDefaultVizPanel(): VizPanel {
 
   const datasourceSettings = getDataSourceSrv().getInstanceSettings(null);
 
-  return new VizPanel({
+  const panel = new VizPanel({
     title: newPanelTitle,
     pluginId: defaultPluginId,
     seriesLimit: config.panelSeriesLimit,
@@ -324,6 +325,8 @@ export function getDefaultVizPanel(): VizPanel {
         })
       : undefined,
   });
+  setPanelRefreshFor(panel);
+  return panel;
 }
 
 export function isLibraryPanel(vizPanel: VizPanel): boolean {

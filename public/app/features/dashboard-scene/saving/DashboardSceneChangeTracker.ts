@@ -31,6 +31,7 @@ import { RowItem } from '../scene/layout-rows/RowItem';
 import { RowsLayoutManager } from '../scene/layout-rows/RowsLayoutManager';
 import { TabItem } from '../scene/layout-tabs/TabItem';
 import { TabsLayoutManager } from '../scene/layout-tabs/TabsLayoutManager';
+import { PanelRefresh } from '../scene/panel-refresh/PanelRefresh';
 import { PanelTimeRange } from '../scene/panel-timerange/PanelTimeRange';
 import { isSceneVariableInstance } from '../settings/variables/utils';
 import { hasPredefinedVariablesAnnotationChanges } from '../utils/predefinedVariablesMetadata';
@@ -58,6 +59,9 @@ export class DashboardSceneChangeTracker {
     // The PanelTimeRange includes the overrides configuration
     if (payload.changedObject instanceof DashboardGridItem || payload.changedObject instanceof PanelTimeRange) {
       return true;
+    }
+    if (payload.changedObject instanceof PanelRefresh) {
+      return Object.prototype.hasOwnProperty.call(payload.partialUpdate, 'refresh');
     }
     // Panels contain a _renderCounter state prop which should not be marked as a change
     if (payload.changedObject instanceof VizPanel) {

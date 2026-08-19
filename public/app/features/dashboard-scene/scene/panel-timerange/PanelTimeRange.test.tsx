@@ -11,6 +11,8 @@ import {
 } from '@grafana/scenes';
 
 import { activateFullSceneTree } from '../../utils/test-utils';
+import { PanelRefreshPolicy } from '../panel-refresh/policy';
+import { RefreshOrigin, runWithRefreshOrigin } from '../refresh-origin';
 
 import { PanelTimeRange } from './PanelTimeRange';
 
@@ -188,6 +190,50 @@ describe('PanelTimeRange', () => {
 
     expect(panelTime.state.value.from.format('Z')).toBe('+00:00'); // UTC
     expect(panelTime.state.value.to.format('Z')).toBe('+00:00'); // UTC
+  });
+
+  describe('panel refresh policy', () => {
+    it.each([PanelRefreshPolicy.Interval, PanelRefreshPolicy.Off])(
+      'suppresses dashboard ticks for the %s policy but accepts global and panel ticks',
+      (policy) => {
+        const panelTime = new PanelTimeRange({ timeFrom: '2h', timeShift: '1h' });
+        const sceneTimeRange = new SceneTimeRange({ from: 'now-6h', to: 'now' });
+        const panel = new SceneCanvasText({ text: 'Hello', $timeRange: panelTime });
+        const scene = new SceneFlexLayout({
+          $timeRange: sceneTimeRange,
+          children: [new SceneFlexItem({ body: panel })],
+        });
+        activateFullSceneTree(scene);
+        panelTime.setPanelRefreshPolicy(policy);
+        const updates = jest.fn();
+        panelTime.subscribeToState(updates);
+
+        sceneTimeRange.onRefresh();
+        expect(updates).not.toHaveBeenCalled();
+
+        runWithRefreshOrigin(RefreshOrigin.Global, () => sceneTimeRange.onRefresh());
+        expect(updates).toHaveBeenCalledTimes(1);
+
+        panelTime.refreshForPanelTick();
+        expect(updates).toHaveBeenCalledTimes(2);
+      }
+    );
+
+    it('continues forwarding dashboard ticks for inherited refresh', () => {
+      const panelTime = new PanelTimeRange();
+      const sceneTimeRange = new SceneTimeRange({ from: 'now-6h', to: 'now' });
+      const panel = new SceneCanvasText({ text: 'Hello', $timeRange: panelTime });
+      const scene = new SceneFlexLayout({
+        $timeRange: sceneTimeRange,
+        children: [new SceneFlexItem({ body: panel })],
+      });
+      activateFullSceneTree(scene);
+      const updates = jest.fn();
+      panelTime.subscribeToState(updates);
+
+      sceneTimeRange.onRefresh();
+      expect(updates).toHaveBeenCalledTimes(1);
+    });
   });
 
   it('should handle invalid time reference in timeShift with relative time range', () => {
