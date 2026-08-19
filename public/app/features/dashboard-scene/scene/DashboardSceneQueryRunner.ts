@@ -30,6 +30,7 @@ interface CapturedRefreshOrigin {
 type RunWithTimeRange = (timeRange: SceneTimeRangeLike) => Promise<void>;
 type PreparedRequests = { primary: DataQueryRequest };
 type PrepareRequests = (timeRange: SceneTimeRangeLike, datasource: DataSourceApi) => PreparedRequests;
+type SubscribeToTimeRangeChanges = (timeRange: SceneTimeRangeLike) => void;
 
 export class DashboardSceneQueryRunner extends SceneQueryRunner {
   private nextLifecycleId = 0;
@@ -140,6 +141,21 @@ export class DashboardSceneQueryRunner extends SceneQueryRunner {
   public override bypassIsInViewChanged(bypass: boolean): void {
     this.externalViewportBypass = bypass;
     super.bypassIsInViewChanged(this.externalViewportBypass || this.panelRefreshViewportBypass);
+  }
+
+  public rebindToCurrentTimeRange(): void {
+    if (!this.isActive || (this.state.runQueriesMode ?? 'auto') !== 'auto') {
+      return;
+    }
+
+    const timeRange = sceneGraph.getTimeRange(this);
+    // The base runner keeps its original time-range subscription until activation ends, while panel policy can add one live.
+    const subscribeToTimeRangeChanges: SubscribeToTimeRangeChanges = Reflect.get(
+      this,
+      'subscribeToTimeRangeChanges'
+    ).bind(this);
+    subscribeToTimeRangeChanges(timeRange);
+    this.subscribeToRefreshOrigins();
   }
 
   private openLifecycle(origin = getRefreshOrigin() ?? RefreshOrigin.Global): PendingDashboardQueryLifecycle {
