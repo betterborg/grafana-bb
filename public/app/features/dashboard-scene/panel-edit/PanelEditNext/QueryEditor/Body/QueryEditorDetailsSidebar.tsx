@@ -3,7 +3,9 @@ import { type FocusEvent, useCallback, useRef } from 'react';
 
 import { type GrafanaTheme2, rangeUtil } from '@grafana/data';
 import { t } from '@grafana/i18n';
+import { config } from '@grafana/runtime';
 import { ClickOutsideWrapper, Stack, Switch, useStyles2 } from '@grafana/ui';
+import { PanelRefreshPicker } from 'app/features/query/components/PanelRefreshPicker';
 
 import {
   useActionsContext,
@@ -107,6 +109,13 @@ export function QueryEditorDetailsSidebar() {
     [options, onQueryOptionsChange]
   );
 
+  const handleRefreshChange = useCallback(
+    (refresh: string | undefined) => {
+      onQueryOptionsChange({ ...options, refresh });
+    },
+    [options, onQueryOptionsChange]
+  );
+
   // Shared props for all input-based OptionFields
   const inputProps = { onBlur: handleBlur, focusedField };
 
@@ -140,6 +149,12 @@ export function QueryEditorDetailsSidebar() {
               hint={t('query-editor-next.details-sidebar.time-range-max-data-points', 'Time range / max data points')}
               disabled
             />
+
+            {config.featureToggles.panelRefreshOverride && (
+              <OptionField field={QueryOptionField.refresh}>
+                <PanelRefreshPicker hideLabel value={options.refresh} onChange={handleRefreshChange} />
+              </OptionField>
+            )}
 
             <OptionField
               field={QueryOptionField.relativeTime}

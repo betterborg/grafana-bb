@@ -1,9 +1,10 @@
-import { useMemo } from 'react';
+import { useCallback, useMemo, useSyncExternalStore } from 'react';
 
 import { type DataSourceInstanceSettings, getDataSourceRef } from '@grafana/data';
 import { type SceneQueryRunner, type VizPanel } from '@grafana/scenes';
 import { type QueryGroupOptions } from 'app/types/query';
 
+import { getPanelRefreshFor } from '../../../../scene/panel-refresh/PanelRefresh';
 import { PanelTimeRange } from '../../../../scene/panel-timerange/PanelTimeRange';
 
 interface UseQueryOptionsParams {
@@ -35,6 +36,16 @@ function extractTimeRange(timeRangeObj: unknown): QueryGroupOptions['timeRange']
 export function useQueryOptions({ panel, queryRunner, dsSettings }: UseQueryOptionsParams): QueryGroupOptions {
   const panelState = panel.useState();
   const queryRunnerState = queryRunner?.useState();
+  const panelRefresh = getPanelRefreshFor(panel);
+  const subscribeToPanelRefresh = useCallback(
+    (onStoreChange: () => void) => {
+      const subscription = panelRefresh?.subscribeToState(onStoreChange);
+      return () => subscription?.unsubscribe();
+    },
+    [panelRefresh]
+  );
+  const getPanelRefreshSnapshot = useCallback(() => panelRefresh?.state.refresh, [panelRefresh]);
+  const refresh = useSyncExternalStore(subscribeToPanelRefresh, getPanelRefreshSnapshot, getPanelRefreshSnapshot);
 
   const queryOptions: QueryGroupOptions = useMemo(() => {
     const showCacheTimeout = dsSettings?.meta.queryOptions?.cacheTimeout;
@@ -53,6 +64,7 @@ export function useQueryOptions({ panel, queryRunner, dsSettings }: UseQueryOpti
       queries: [],
       maxDataPoints: queryRunnerState?.maxDataPoints,
       minInterval: queryRunnerState?.minInterval,
+      refresh,
       timeRange,
     };
   }, [
@@ -61,6 +73,7 @@ export function useQueryOptions({ panel, queryRunner, dsSettings }: UseQueryOpti
     queryRunnerState?.minInterval,
     queryRunnerState?.cacheTimeout,
     queryRunnerState?.queryCachingTTL,
+    refresh,
     dsSettings,
   ]);
 

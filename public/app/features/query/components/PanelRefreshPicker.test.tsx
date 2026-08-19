@@ -111,6 +111,13 @@ describe('PanelRefreshPicker', () => {
     const picker = screen.getByRole('combobox', { name: 'Refresh' });
     expect(picker).toHaveAccessibleDescription('Manual refreshes and time range changes refresh every panel.');
   });
+
+  it('can omit its field label when a consumer provides the field chrome', () => {
+    render(<PanelRefreshPicker hideLabel onChange={jest.fn()} />);
+
+    expect(screen.queryByText('Refresh')).not.toBeInTheDocument();
+    expect(screen.getByRole('combobox', { name: 'Panel refresh interval' })).toBeInTheDocument();
+  });
 });
 
 async function selectOption(name: string) {

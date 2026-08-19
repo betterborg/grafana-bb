@@ -28,9 +28,15 @@ export interface PanelRefreshPickerProps {
   value?: string | null;
   intervals?: string[];
   onChange: (value: string | undefined) => void;
+  hideLabel?: boolean;
 }
 
-export function PanelRefreshPicker({ value, intervals = defaultIntervals, onChange }: PanelRefreshPickerProps) {
+export function PanelRefreshPicker({
+  value,
+  intervals = defaultIntervals,
+  onChange,
+  hideLabel = false,
+}: PanelRefreshPickerProps) {
   const [inputValue, setInputValue] = useState('');
   const validIntervals = useMemo(
     () => contextSrv.getValidIntervals(intervals).filter(isWithinMaxRefreshInterval),
@@ -115,6 +121,36 @@ export function PanelRefreshPicker({ value, intervals = defaultIntervals, onChan
     'Manual refreshes and time range changes refresh every panel.'
   );
 
+  const picker = (
+    <div>
+      <Select
+        inputId="panel-refresh-picker"
+        aria-label={hideLabel ? t('query.panel-refresh-picker.aria-label', 'Panel refresh interval') : undefined}
+        components={{ Input: RefreshPickerInput }}
+        options={options}
+        value={selectedValue}
+        onChange={onSelect}
+        onInputChange={setInputValue}
+        onKeyDown={onKeyDown}
+        allowCustomValue
+        createOptionPosition="last"
+        isValidNewOption={isValidCustomInterval}
+        onCreateOption={onCreateOption}
+        width={25}
+        formatCreateLabel={(input) =>
+          t('query.panel-refresh-picker.custom-option', 'Use custom interval: {{interval}}', { interval: input })
+        }
+      />
+      <span id="panel-refresh-picker-description" className="sr-only">
+        {description}
+      </span>
+    </div>
+  );
+
+  if (hideLabel) {
+    return picker;
+  }
+
   return (
     <InlineFieldRow>
       <InlineField
@@ -122,28 +158,7 @@ export function PanelRefreshPicker({ value, intervals = defaultIntervals, onChan
         tooltip={description}
         htmlFor="panel-refresh-picker"
       >
-        <div>
-          <Select
-            inputId="panel-refresh-picker"
-            components={{ Input: RefreshPickerInput }}
-            options={options}
-            value={selectedValue}
-            onChange={onSelect}
-            onInputChange={setInputValue}
-            onKeyDown={onKeyDown}
-            allowCustomValue
-            createOptionPosition="last"
-            isValidNewOption={isValidCustomInterval}
-            onCreateOption={onCreateOption}
-            width={25}
-            formatCreateLabel={(input) =>
-              t('query.panel-refresh-picker.custom-option', 'Use custom interval: {{interval}}', { interval: input })
-            }
-          />
-          <span id="panel-refresh-picker-description" className="sr-only">
-            {description}
-          </span>
-        </div>
+        {picker}
       </InlineField>
     </InlineFieldRow>
   );

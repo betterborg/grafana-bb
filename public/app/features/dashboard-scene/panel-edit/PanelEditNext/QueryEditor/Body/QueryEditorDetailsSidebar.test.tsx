@@ -1,6 +1,7 @@
 import { fireEvent, screen } from '@testing-library/react';
 
 import { type PanelData } from '@grafana/data';
+import { config } from '@grafana/runtime';
 import { type QueryGroupOptions } from 'app/types/query';
 
 import { renderWithQueryEditorProvider, mockOptions, mockActions } from '../testUtils';
@@ -9,6 +10,7 @@ import { QueryEditorDetailsSidebar } from './QueryEditorDetailsSidebar';
 
 describe('QueryEditorDetailsSidebar', () => {
   const mockCloseSidebar = jest.fn();
+  const originalPanelRefreshOverride = config.featureToggles.panelRefreshOverride;
 
   const defaultQrState: { queries: never[]; data: PanelData | undefined } = {
     queries: [],
@@ -22,6 +24,11 @@ describe('QueryEditorDetailsSidebar', () => {
 
   beforeEach(() => {
     jest.clearAllMocks();
+    config.featureToggles.panelRefreshOverride = true;
+  });
+
+  afterAll(() => {
+    config.featureToggles.panelRefreshOverride = originalPanelRefreshOverride;
   });
 
   const renderSidebar = (
@@ -48,8 +55,46 @@ describe('QueryEditorDetailsSidebar', () => {
     expect(screen.getByLabelText('Max data points')).toBeInTheDocument();
     expect(screen.getByLabelText('Min interval')).toBeInTheDocument();
     expect(screen.getByText('Interval')).toBeInTheDocument();
+    expect(screen.getByText('Refresh')).toBeInTheDocument();
+    expect(screen.getByRole('combobox', { name: 'Panel refresh interval' })).toBeInTheDocument();
     expect(screen.getByLabelText('Relative time')).toBeInTheDocument();
     expect(screen.getByLabelText('Time shift')).toBeInTheDocument();
+  });
+
+  it('should hide panel refresh when the feature toggle is disabled', () => {
+    config.featureToggles.panelRefreshOverride = false;
+
+    renderSidebar();
+
+    expect(screen.queryByRole('combobox', { name: 'Panel refresh interval' })).not.toBeInTheDocument();
+  });
+
+  describe('refresh picker', () => {
+    it('should call onQueryOptionsChange with an updated refresh policy', async () => {
+      const { user } = renderSidebar();
+
+      await user.click(screen.getByRole('combobox', { name: 'Panel refresh interval' }));
+      await user.click(screen.getByRole('option', { name: 'Off' }));
+
+      expect(mockActions.onQueryOptionsChange).toHaveBeenCalledWith(
+        expect.objectContaining({
+          refresh: 'off',
+        })
+      );
+    });
+
+    it('should reset refresh to the dashboard default', async () => {
+      const { user } = renderSidebar({ ...mockOptions, refresh: '30s' });
+
+      await user.click(screen.getByRole('combobox', { name: 'Panel refresh interval' }));
+      await user.click(screen.getByRole('option', { name: 'Default' }));
+
+      expect(mockActions.onQueryOptionsChange).toHaveBeenCalledWith(
+        expect.objectContaining({
+          refresh: undefined,
+        })
+      );
+    });
   });
 
   it('should close sidebar when clicking outside', async () => {
