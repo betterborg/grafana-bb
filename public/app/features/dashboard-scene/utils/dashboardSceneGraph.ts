@@ -4,6 +4,7 @@ import { DashboardDataLayerSet } from '../scene/DashboardDataLayerSet';
 import { VizPanelLinks } from '../scene/PanelLinks';
 import { RowItem } from '../scene/layout-rows/RowItem';
 import { TabItem } from '../scene/layout-tabs/TabItem';
+import { RefreshOrigin, runWithRefreshOrigin } from '../scene/refresh-origin';
 import { type DashboardSceneLike } from '../scene/types/dashboard';
 
 import { getLayoutManagerFor } from './getLayoutManagerFor';
@@ -83,6 +84,11 @@ function getCursorSync(scene: DashboardSceneLike) {
 
   return;
 }
+
+function refreshDashboard(scene: DashboardSceneLike) {
+  runWithRefreshOrigin(RefreshOrigin.Global, () => sceneGraph.getTimeRange(scene).onRefresh());
+}
+
 // Functions to manage the lookup table in dashboard scene that will hold element_identifer : panel_id
 function getElementIdentifierForVizPanel(vizPanel: VizPanel): string {
   const scene = getDashboardSceneFor(vizPanel);
@@ -150,6 +156,7 @@ export const dashboardSceneGraph = {
   getVizPanels,
   getDataLayers,
   getCursorSync,
+  refreshDashboard,
   getLayoutManagerFor,
   getNextPanelId,
   getPanelIdGenerator,
