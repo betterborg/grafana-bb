@@ -1,7 +1,8 @@
 import { Subject } from 'rxjs';
+import { waitFor } from 'test/test-utils';
 
 import { type DataQueryRequest, type DataSourceApi, LoadingState, type PanelData } from '@grafana/data';
-import { EmbeddedScene, SceneQueryRunner, SceneTimeRange } from '@grafana/scenes';
+import { EmbeddedScene, type QueryRunnerState, SceneQueryRunner, SceneTimeRange } from '@grafana/scenes';
 
 import { DashboardSceneQueryRunner } from './DashboardSceneQueryRunner';
 import { RefreshOrigin, runWithRefreshOrigin } from './refresh-origin';
@@ -52,6 +53,65 @@ describe('DashboardSceneQueryRunner', () => {
 
     results.next(panelData(LoadingState.Done, request));
     expect(runner.isQueryPending()).toBe(false);
+  });
+
+  it('does not bind a newer lifecycle to an older overlapping datasource resolution', async () => {
+    const firstDatasourceResolution = deferred<DataSourceApi>();
+    const secondDatasourceResolution = deferred<DataSourceApi>();
+    const firstResults = new Subject<PanelData>();
+    const secondResults = new Subject<PanelData>();
+    getDataSourceMock
+      .mockReturnValueOnce(firstDatasourceResolution.promise)
+      .mockReturnValueOnce(secondDatasourceResolution.promise);
+    runRequestMock.mockReturnValueOnce(firstResults).mockReturnValueOnce(secondResults);
+    const runner = buildRunner();
+
+    runWithRefreshOrigin(RefreshOrigin.Dashboard, () => runner.runQueries());
+    runWithRefreshOrigin(RefreshOrigin.Panel, () => runner.runQueries());
+
+    expect(runner.getPendingLifecycle()).toMatchObject({ id: 2, origin: RefreshOrigin.Panel });
+    expect(getDataSourceMock).toHaveBeenCalledTimes(1);
+
+    firstDatasourceResolution.resolve(createDatasource());
+    await firstDatasourceResolution.promise;
+
+    await waitFor(() => expect(getDataSourceMock).toHaveBeenCalledTimes(2));
+    const firstRequest = runRequestMock.mock.calls[0][1] as DataQueryRequest;
+    firstResults.next(panelData(LoadingState.Done, firstRequest));
+    expect(runner.getPendingLifecycle()).toMatchObject({ id: 2, origin: RefreshOrigin.Panel });
+
+    secondDatasourceResolution.resolve(createDatasource());
+    await secondDatasourceResolution.promise;
+    await Promise.resolve();
+
+    const secondRequest = runRequestMock.mock.calls[1][1] as DataQueryRequest;
+    secondResults.next(panelData(LoadingState.Loading, secondRequest));
+    expect(runner.getPendingLifecycle()).toMatchObject({ id: 2, requestId: secondRequest.requestId });
+
+    secondResults.next(panelData(LoadingState.Done, secondRequest));
+    expect(runner.isQueryPending()).toBe(false);
+  });
+
+  it('settles a pre-request datasource error that retains data from a prior request', async () => {
+    const consoleError = jest.spyOn(console, 'error').mockImplementation();
+    const datasourceResolution = deferred<DataSourceApi>();
+    getDataSourceMock.mockReturnValue(datasourceResolution.promise);
+    const previousRequest = request('previous-request');
+    const runner = buildRunner({ data: panelData(LoadingState.Done, previousRequest) });
+
+    runner.runQueries();
+    expect(runner.isQueryPending()).toBe(true);
+
+    datasourceResolution.reject(new Error('Datasource unavailable'));
+    await expect(datasourceResolution.promise).rejects.toThrow('Datasource unavailable');
+    await Promise.resolve();
+
+    expect(runner.state.data).toMatchObject({
+      state: LoadingState.Error,
+      request: { requestId: previousRequest.requestId },
+    });
+    expect(runner.isQueryPending()).toBe(false);
+    expect(consoleError).toHaveBeenCalledWith('PanelQueryRunner Error', expect.any(Error));
   });
 
   it('ignores a terminal result from the previous request and only settles the matching lifecycle', () => {
@@ -111,11 +171,12 @@ describe('DashboardSceneQueryRunner', () => {
   });
 });
 
-function buildRunner(): DashboardSceneQueryRunner {
+function buildRunner(overrides: Partial<QueryRunnerState> = {}): DashboardSceneQueryRunner {
   const runner = new DashboardSceneQueryRunner({
     datasource: { uid: 'test-datasource' },
     queries: [{ refId: 'A' }],
     runQueriesMode: 'manual',
+    ...overrides,
   });
   new EmbeddedScene({
     $timeRange: new SceneTimeRange({ from: 'now-1h', to: 'now' }),
@@ -159,8 +220,10 @@ function panelData(state: LoadingState, dataRequest: DataQueryRequest): PanelDat
 
 function deferred<T>() {
   let resolve!: (value: T) => void;
-  const promise = new Promise<T>((resolvePromise) => {
+  let reject!: (reason?: unknown) => void;
+  const promise = new Promise<T>((resolvePromise, rejectPromise) => {
     resolve = resolvePromise;
+    reject = rejectPromise;
   });
-  return { promise, resolve };
+  return { promise, resolve, reject };
 }
