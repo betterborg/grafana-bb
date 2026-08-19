@@ -41,6 +41,7 @@ import { type RowItem } from '../scene/layout-rows/RowItem';
 import { RowsLayoutManager } from '../scene/layout-rows/RowsLayoutManager';
 import { type TabItem } from '../scene/layout-tabs/TabItem';
 import { TabsLayoutManager } from '../scene/layout-tabs/TabsLayoutManager';
+import { getPanelRefreshFor } from '../scene/panel-refresh/PanelRefresh';
 import { PanelTimeRange } from '../scene/panel-timerange/PanelTimeRange';
 import { type DashboardLayoutManager } from '../scene/types/DashboardLayoutManager';
 import { isLinkEditable } from '../settings/links/utils';
@@ -262,6 +263,11 @@ export function vizPanelToPanel(
     panel.timeShift = panelTime.state.timeShift;
     panel.hideTimeOverride = panelTime.state.hideTimeOverride;
     panel.timeCompare = panelTime.state.compareWith;
+  }
+
+  const panelRefresh = getPanelRefreshFor(vizPanel)?.state.refresh;
+  if (panelRefresh !== undefined) {
+    panel.refresh = panelRefresh;
   }
 
   if (gridItem instanceof DashboardGridItem) {

@@ -28,6 +28,8 @@ import { Icon, PanelChrome, Stack, TimePickerTooltip, Tooltip, useStyles2 } from
 import { type TimeOverrideResult } from 'app/features/dashboard/utils/panel';
 
 import { getDashboardSceneFor } from '../../utils/utils';
+import { PanelRefreshPolicy } from '../panel-refresh/policy';
+import { getAncestorRefreshOrigin, RefreshOrigin, runWithRefreshOrigin } from '../refresh-origin';
 
 import { getCompareOptions, PanelTimeRangeDrawer, type PanelTimeRangeZoomBehavior } from './PanelTimeRangeDrawer';
 import { getCompareTimeRange } from './utils';
@@ -44,6 +46,9 @@ export interface PanelTimeRangeState extends SceneTimeRangeState {
 
 export class PanelTimeRange extends SceneTimeRangeTransformerBase<PanelTimeRangeState> implements SceneTimeRangeLike {
   public static Component = PanelTimeRangeRenderer;
+  private panelRefreshPolicy = PanelRefreshPolicy.Inherit;
+  private onGlobalPanelRefresh?: () => void;
+  private previousAncestorState?: SceneTimeRangeState;
 
   public constructor(state: Partial<PanelTimeRangeState> = {}) {
     super({
@@ -70,22 +75,50 @@ export class PanelTimeRange extends SceneTimeRangeTransformerBase<PanelTimeRange
         //   therefore we need to compare timeInfo directly and update when required
         // Note: compare to newState.timeInfo because it is always one behind
         if (n.timeInfo !== timeInfo) {
-          this.setState({ timeInfo, value: timeRange });
+          runWithRefreshOrigin(RefreshOrigin.Global, () => {
+            this.setState({
+              timeInfo,
+              value: timeRange,
+              from: typeof timeRange.raw.from === 'string' ? timeRange.raw.from : timeRange.raw.from.toISOString(),
+              to: typeof timeRange.raw.to === 'string' ? timeRange.raw.to : timeRange.raw.to.toISOString(),
+            });
+          });
+          this.onGlobalPanelRefresh?.();
         }
       })
     );
-
-    const { timeRange } = this.getTimeOverride(this.getAncestorTimeRange().state.value);
-
-    // set initial values on activate
-    this.setState({
-      value: timeRange,
-      from: typeof timeRange.raw.from === 'string' ? timeRange.raw.from : timeRange.raw.from.toISOString(),
-      to: typeof timeRange.raw.to === 'string' ? timeRange.raw.to : timeRange.raw.to.toISOString(),
-    });
   }
 
   protected ancestorTimeRangeChanged(timeRange: SceneTimeRangeState): void {
+    const previousState = this.previousAncestorState;
+    this.previousAncestorState = timeRange;
+
+    if (previousState && this.panelRefreshPolicy !== PanelRefreshPolicy.Inherit) {
+      const origin = getAncestorRefreshOrigin(timeRange, previousState);
+      if (origin === RefreshOrigin.Dashboard) {
+        return;
+      }
+
+      this.updateFromAncestor(timeRange);
+      if (origin === RefreshOrigin.Global) {
+        this.onGlobalPanelRefresh?.();
+      }
+      return;
+    }
+
+    this.updateFromAncestor(timeRange);
+  }
+
+  public setPanelRefreshPolicy(policy: PanelRefreshPolicy, onGlobalRefresh?: () => void): void {
+    this.panelRefreshPolicy = policy;
+    this.onGlobalPanelRefresh = onGlobalRefresh;
+  }
+
+  public refreshForPanelTick(): void {
+    runWithRefreshOrigin(RefreshOrigin.Panel, () => this.updateFromAncestor(this.getAncestorTimeRange().state));
+  }
+
+  private updateFromAncestor(timeRange: SceneTimeRangeState): void {
     if (this.state.timeFrom && this.state.zoomBehavior === 'dashboard') {
       return;
     }

@@ -10,6 +10,7 @@ import { SHARED_DASHBOARD_QUERY } from 'app/plugins/datasource/dashboard/constan
 import { MIXED_DATASOURCE_NAME } from 'app/plugins/datasource/mixed/MixedDataSource';
 
 import { DashboardSceneQueryRunner } from '../../scene/DashboardSceneQueryRunner';
+import { getPanelRefreshFor } from '../../scene/panel-refresh/PanelRefresh';
 import { PanelTimeRange } from '../../scene/panel-timerange/PanelTimeRange';
 import { vizPanelToSchemaV2 } from '../transformSceneToSaveModelSchemaV2';
 
@@ -422,6 +423,16 @@ describe('buildVizPanel', () => {
     expect(dashboardProvider.state.$data).toBeInstanceOf(DashboardSceneQueryRunner);
     expect(neutralProvider.state.$data).toBeInstanceOf(SceneQueryRunner);
     expect(neutralProvider.state.$data).not.toBeInstanceOf(DashboardSceneQueryRunner);
+    expect(getPanelRefreshFor(buildVizPanel(panel))).toBeDefined();
+    expect(buildVizPanelState(panel).$behaviors).toEqual([]);
+  });
+
+  it('preserves panel refresh through the dashboard v2 builder and serializer', () => {
+    const viz = buildVizPanel(buildPanelWithQueryOptions({ refresh: '30s' }));
+
+    expect(getPanelRefreshFor(viz)?.state.refresh).toBe('30s');
+    const saved = vizPanelToSchemaV2(viz, undefined, false) as PanelKind;
+    expect(saved.spec.data.spec.queryOptions.refresh).toBe('30s');
   });
 
   it.each([

@@ -40,6 +40,7 @@ import { VizPanelHeaderActions } from '../../scene/VizPanelHeaderActions';
 import { VizPanelSubHeader } from '../../scene/VizPanelSubHeader';
 import { type AutoGridItem } from '../../scene/layout-auto-grid/AutoGridItem';
 import { type DashboardGridItem } from '../../scene/layout-default/DashboardGridItem';
+import { setPanelRefreshFor } from '../../scene/panel-refresh/PanelRefresh';
 import { PanelTimeRange } from '../../scene/panel-timerange/PanelTimeRange';
 import { setDashboardPanelContext } from '../../scene/setDashboardPanelContext';
 import { type DashboardLayoutManager } from '../../scene/types/DashboardLayoutManager';
@@ -121,7 +122,12 @@ function buildVizPanelStateWithRunner(
     vizPanelState._UNSAFE_customMigrationHandler = getV2AngularMigrationHandler(angularMigration);
   }
 
-  if (queryOptions.timeFrom || queryOptions.timeShift || queryOptions.timeCompare) {
+  if (
+    queryOptions.timeFrom ||
+    queryOptions.timeShift ||
+    queryOptions.timeCompare ||
+    (config.featureToggles.panelRefreshOverride && queryOptions.refresh)
+  ) {
     vizPanelState.$timeRange = new PanelTimeRange({
       timeFrom: queryOptions.timeFrom,
       timeShift: queryOptions.timeShift,
@@ -138,7 +144,9 @@ export function buildVizPanel(panel: PanelKind, id?: number): VizPanel {
 
   addDashboardPanelChrome(vizPanelState);
 
-  return new VizPanel(vizPanelState);
+  const vizPanel = new VizPanel(vizPanelState);
+  setPanelRefreshFor(vizPanel, panel.spec.data.spec.queryOptions.refresh);
+  return vizPanel;
 }
 
 /**
@@ -214,7 +222,9 @@ export function buildLibraryPanel(panel: LibraryPanelKind, id?: number): VizPane
 
   addDashboardPanelChrome(vizPanelState);
 
-  return new VizPanel(vizPanelState);
+  const vizPanel = new VizPanel(vizPanelState);
+  setPanelRefreshFor(vizPanel);
+  return vizPanel;
 }
 
 function createPanelDataProvider(
