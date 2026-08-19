@@ -168,6 +168,7 @@ export class DashboardSceneQueryRunner extends SceneQueryRunner {
   private trackRunWithTimeRange(baseRunWithTimeRange: RunWithTimeRange, timeRange: SceneTimeRangeLike): Promise<void> {
     const lifecycle = this.nextRunLifecycle ?? this.openLifecycle(this.consumeRefreshOrigin(timeRange));
     this.nextRunLifecycle = undefined;
+    this.retireSupersededSubscribedLifecycles(lifecycle.id);
     const contextualTimeRange = this.createContextualTimeRange(timeRange, lifecycle);
     this.activePreparations.add(lifecycle.id);
 
@@ -233,6 +234,13 @@ export class DashboardSceneQueryRunner extends SceneQueryRunner {
 
   private handleDataStateChange(state: LoadingState | undefined, requestId: string | undefined): void {
     this.pruneLifecycleHistory(requestId);
+    const failedLifecycle = this.findFailedSetupLifecycle(state, requestId);
+    if (failedLifecycle) {
+      this.associateLifecycleWithRequestId(failedLifecycle, requestId);
+      this.completePendingLifecycle(failedLifecycle);
+      return;
+    }
+
     const lifecycle = this.findLifecycleForRequest(requestId);
     if (lifecycle) {
       if (state === LoadingState.Done || state === LoadingState.Error) {
@@ -277,6 +285,36 @@ export class DashboardSceneQueryRunner extends SceneQueryRunner {
     this.lifecycleByRequestId.set(requestId, lifecycle);
   }
 
+  private associateLifecycleWithRequestId(
+    lifecycle: PendingDashboardQueryLifecycle,
+    requestId: string | undefined
+  ): void {
+    if (requestId) {
+      this.lifecycleByRequestId.set(requestId, lifecycle);
+    }
+  }
+
+  private findFailedSetupLifecycle(
+    state: LoadingState | undefined,
+    requestId: string | undefined
+  ): PendingDashboardQueryLifecycle | undefined {
+    if (state !== LoadingState.Error) {
+      return undefined;
+    }
+
+    const setupLifecycle = this.querySetupLifecycle;
+    if (setupLifecycle && !setupLifecycle.querySubscribed && this.activePreparations.has(setupLifecycle.id)) {
+      return setupLifecycle;
+    }
+
+    const pendingLifecycle = this.pendingLifecycle;
+    if (pendingLifecycle && !pendingLifecycle.querySubscribed && requestId === pendingLifecycle.previousRequestId) {
+      return pendingLifecycle;
+    }
+
+    return undefined;
+  }
+
   private findLifecycleForRequest(requestId: string | undefined): PendingDashboardQueryLifecycle | undefined {
     if (!requestId) {
       return undefined;
@@ -294,6 +332,23 @@ export class DashboardSceneQueryRunner extends SceneQueryRunner {
   private pruneLifecycleHistory(currentRequestId: string | undefined): void {
     for (const [requestId, lifecycle] of this.lifecycleByRequestId) {
       if (requestId !== currentRequestId && !this.pendingLifecycles.has(lifecycle.id)) {
+        this.lifecycleByRequestId.delete(requestId);
+      }
+    }
+  }
+
+  private retireSupersededSubscribedLifecycles(currentLifecycleId: number): void {
+    for (const lifecycle of this.pendingLifecycles.values()) {
+      if (lifecycle.id !== currentLifecycleId && lifecycle.querySubscribed) {
+        this.discardPendingLifecycle(lifecycle);
+      }
+    }
+  }
+
+  private discardPendingLifecycle(lifecycle: PendingDashboardQueryLifecycle): void {
+    this.clearPendingLifecycle(lifecycle.id);
+    for (const [requestId, mappedLifecycle] of this.lifecycleByRequestId) {
+      if (mappedLifecycle.id === lifecycle.id) {
         this.lifecycleByRequestId.delete(requestId);
       }
     }

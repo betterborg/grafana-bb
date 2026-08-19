@@ -205,6 +205,7 @@ describe('DashboardSceneQueryRunner', () => {
       request: { requestId: previousRequest.requestId },
     });
     expect(runner.isQueryPending()).toBe(false);
+    expect(runner.getLifecycleForRequest(previousRequest.requestId)?.origin).toBe(RefreshOrigin.Global);
     expect(consoleError).toHaveBeenCalledWith('PanelQueryRunner Error', expect.any(Error));
   });
 
@@ -229,6 +230,56 @@ describe('DashboardSceneQueryRunner', () => {
     });
     expect(runner.isQueryPending()).toBe(false);
     expect(consoleError).toHaveBeenCalledWith('PanelQueryRunner Error', expect.any(Error));
+  });
+
+  it('associates a setup failure retaining the previous request ID with the failed lifecycle origin', async () => {
+    const consoleError = jest.spyOn(console, 'error').mockImplementation();
+    const firstResults = new Subject<PanelData>();
+    getDataSourceMock.mockResolvedValue(createDatasource());
+    runRequestMock.mockReturnValueOnce(firstResults).mockImplementationOnce(() => {
+      throw new Error('Query setup failed');
+    });
+    const runner = buildRunner();
+
+    runWithRefreshOrigin(RefreshOrigin.Dashboard, () => runner.runQueries());
+    await Promise.resolve();
+    await Promise.resolve();
+    const firstRequest = runRequestMock.mock.calls[0][1] as DataQueryRequest;
+    firstResults.next(panelData(LoadingState.Done, firstRequest));
+    expect(runner.getLifecycleForRequest(firstRequest.requestId)?.origin).toBe(RefreshOrigin.Dashboard);
+
+    runWithRefreshOrigin(RefreshOrigin.Global, () => runner.runQueries());
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(runner.state.data).toMatchObject({
+      state: LoadingState.Error,
+      request: { requestId: firstRequest.requestId },
+    });
+    expect(runner.getLifecycleForRequest(firstRequest.requestId)?.origin).toBe(RefreshOrigin.Global);
+    expect(consoleError).toHaveBeenCalledWith('PanelQueryRunner Error', expect.any(Error));
+  });
+
+  it('retires a subscribed lifecycle when a newer run supersedes it', async () => {
+    const firstResults = new Subject<PanelData>();
+    const secondDatasourceResolution = deferred<DataSourceApi>();
+    getDataSourceMock.mockResolvedValueOnce(createDatasource()).mockReturnValueOnce(secondDatasourceResolution.promise);
+    runRequestMock.mockReturnValueOnce(firstResults);
+    const runner = buildRunner();
+
+    runWithRefreshOrigin(RefreshOrigin.Dashboard, () => runner.runQueries());
+    await Promise.resolve();
+    await Promise.resolve();
+    const firstRequest = runRequestMock.mock.calls[0][1] as DataQueryRequest;
+    firstResults.next(panelData(LoadingState.Loading, firstRequest));
+    expect(Reflect.get(runner, 'pendingLifecycles').size).toBe(1);
+
+    runWithRefreshOrigin(RefreshOrigin.Panel, () => runner.runQueries());
+
+    expect(runner.getPendingLifecycle()).toMatchObject({ id: 2, origin: RefreshOrigin.Panel });
+    expect(Reflect.get(runner, 'pendingLifecycles').size).toBe(1);
+    expect(Array.from(Reflect.get(runner, 'pendingLifecycles').keys())).toEqual([2]);
+    expect(runner.getLifecycleForRequest(firstRequest.requestId)).toBeUndefined();
+    expect(Reflect.get(runner, 'lifecycleByRequestId').size).toBe(0);
   });
 
   it('ignores a terminal result from the previous request and only settles the matching lifecycle', () => {

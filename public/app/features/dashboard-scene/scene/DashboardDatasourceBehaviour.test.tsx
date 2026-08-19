@@ -1818,6 +1818,28 @@ describe('DashboardDatasourceBehaviour', () => {
       expect(origins).toEqual([RefreshOrigin.Global]);
     });
 
+    it.each([
+      ['allows a global setup failure after dashboard work', RefreshOrigin.Dashboard, RefreshOrigin.Global, true],
+      ['suppresses a dashboard setup failure after global work', RefreshOrigin.Global, RefreshOrigin.Dashboard, false],
+    ])('%s', (_name, previousOrigin, failedOrigin, shouldRun) => {
+      const context = buildPolicyTestScene(undefined, 'off');
+      const origins: Array<RefreshOrigin | undefined> = [];
+      const runQueries = jest
+        .spyOn(context.dependentRunner, 'runQueries')
+        .mockImplementation(() => origins.push(getRefreshOrigin()));
+
+      publishSourceRequest(context.sourceRunner, previousOrigin, 'retained-request');
+      runQueries.mockClear();
+      origins.length = 0;
+
+      runWithRefreshOrigin(failedOrigin, () => context.sourceRunner.runQueries());
+      context.sourceRunner.setState({ data: panelDataFor('retained-request', 0, LoadingState.Error) });
+      jest.advanceTimersByTime(CHAINED_FORWARD_RERUN_COALESCE_TEST_MS);
+
+      expect(runQueries).toHaveBeenCalledTimes(shouldRun ? 1 : 0);
+      expect(origins).toEqual(shouldRun ? [failedOrigin] : []);
+    });
+
     it('promotes mixed coalesced source origins to global', () => {
       const context = buildPolicyTestScene(undefined, undefined, true, 2);
       const secondSource = context.additionalSources[0];
