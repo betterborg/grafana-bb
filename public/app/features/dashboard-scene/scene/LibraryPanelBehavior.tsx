@@ -5,6 +5,7 @@ import {
   type SceneObject,
   SceneObjectBase,
   type SceneObjectState,
+  SceneQueryRunner,
   sceneUtils,
   VizPanel,
   type VizPanelState,
@@ -21,7 +22,7 @@ import { VizPanelLinks, VizPanelLinksMenu } from './PanelLinks';
 import { panelLinksBehavior } from './PanelMenuBehavior';
 import { PanelNotices } from './PanelNotices';
 import { DashboardGridItem } from './layout-default/DashboardGridItem';
-import { getPanelRefreshFor } from './panel-refresh/PanelRefresh';
+import { setPanelRefreshFor } from './panel-refresh/PanelRefresh';
 import { getPanelRefreshValue } from './panel-refresh/policy';
 import { PanelTimeRange } from './panel-timerange/PanelTimeRange';
 import { getUpdatedHoverHeader } from './panel-timerange/utils';
@@ -61,6 +62,7 @@ export class LibraryPanelBehavior extends SceneObjectBase<LibraryPanelBehaviorSt
 
     const libPanelModel = new PanelModel(libPanel.model);
     const panelRefresh = getPanelRefreshValue(libPanelModel);
+    const isDashboardRoot = 'isDashboardScene' in vizPanel.getRoot();
 
     // Use dashboard panel ID for data layer filtering
     const dashboardPanelId = getPanelIdForVizPanel(vizPanel);
@@ -84,7 +86,9 @@ export class LibraryPanelBehavior extends SceneObjectBase<LibraryPanelBehaviorSt
     }
 
     const timeRange =
-      libPanelModel.timeFrom || libPanelModel.timeShift || (config.featureToggles.panelRefreshOverride && panelRefresh)
+      libPanelModel.timeFrom ||
+      libPanelModel.timeShift ||
+      (isDashboardRoot && config.featureToggles.panelRefreshOverride && panelRefresh)
         ? new PanelTimeRange({
             timeFrom: libPanelModel.timeFrom,
             timeShift: libPanelModel.timeShift,
@@ -102,7 +106,7 @@ export class LibraryPanelBehavior extends SceneObjectBase<LibraryPanelBehaviorSt
       displayMode: libPanelModel.transparent ? 'transparent' : undefined,
       description: libPanelModel.description,
       titleItems: titleItems,
-      $data: createPanelDataProvider(libPanelModel),
+      $data: createPanelDataProvider(libPanelModel, undefined, isDashboardRoot ? undefined : SceneQueryRunner),
     };
 
     if (timeRange) {
@@ -110,7 +114,9 @@ export class LibraryPanelBehavior extends SceneObjectBase<LibraryPanelBehaviorSt
     }
 
     vizPanel.setState(vizPanelState);
-    getPanelRefreshFor(vizPanel)?.setState({ refresh: panelRefresh });
+    if (isDashboardRoot) {
+      setPanelRefreshFor(vizPanel, panelRefresh);
+    }
     vizPanel.changePluginType(libPanelModel.type, vizPanelState.options, vizPanelState.fieldConfig);
 
     this.setState({ _loadedPanel: libPanel, isLoaded: true, name: libPanel.name });

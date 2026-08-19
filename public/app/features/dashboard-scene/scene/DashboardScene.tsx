@@ -119,6 +119,8 @@ import { DashboardGridItem } from './layout-default/DashboardGridItem';
 import { DefaultGridLayoutManager } from './layout-default/DefaultGridLayoutManager';
 import { addNewRowTo } from './layouts-shared/addNew';
 import { clearClipboard } from './layouts-shared/paste';
+import { setPanelRefreshFor } from './panel-refresh/PanelRefresh';
+import { getPanelRefreshValue } from './panel-refresh/policy';
 import { getUpdatedHoverHeader } from './panel-timerange/utils';
 import { type AnyDashboardLayoutManager, type DashboardLayoutManager } from './types/DashboardLayoutManager';
 import { type DashboardSceneLike, type DashboardSceneState } from './types/dashboard';
@@ -841,6 +843,7 @@ export class DashboardScene extends SceneObjectBase<DashboardSceneState> impleme
       const body = panelToReplace.clone({
         $behaviors: [behavior],
       });
+      setPanelRefreshFor(body, getPanelRefreshValue(libPanel.model ?? {}));
       parent.setState({ body });
       return;
     }
@@ -850,6 +853,7 @@ export class DashboardScene extends SceneObjectBase<DashboardSceneState> impleme
       const body = parent.state.body.clone({
         $behaviors: [behavior],
       });
+      setPanelRefreshFor(body, getPanelRefreshValue(libPanel.model ?? {}));
       parent.setState({ body });
       parent.handleEditChange();
       return;

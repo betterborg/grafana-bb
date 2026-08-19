@@ -13,6 +13,8 @@ import { LibraryPanelsSearch } from 'app/features/library-panels/components/Libr
 import { getDashboardSceneFor, getDefaultVizPanel } from '../utils/utils';
 
 import { LibraryPanelBehavior } from './LibraryPanelBehavior';
+import { setPanelRefreshFor } from './panel-refresh/PanelRefresh';
+import { getPanelRefreshValue } from './panel-refresh/policy';
 import { isDashboardLayoutItem } from './types/DashboardLayoutItem';
 
 export interface AddLibraryPanelDrawerState extends SceneObjectState {
@@ -34,6 +36,7 @@ export class AddLibraryPanelDrawer extends SceneObjectBase<AddLibraryPanelDrawer
       hoverHeader: !panelInfo.model.title,
       $behaviors: [new LibraryPanelBehavior({ uid: panelInfo.uid, name: panelInfo.name })],
     });
+    setPanelRefreshFor(newPanel, getPanelRefreshValue(panelInfo.model));
 
     const panelToReplace = this.state.panelToReplaceRef?.resolve();
 
