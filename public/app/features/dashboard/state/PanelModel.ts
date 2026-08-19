@@ -60,6 +60,7 @@ const notPersistedProperties: { [str: string]: boolean } = {
   key: true,
   isNew: true,
   refreshWhenInView: true,
+  panelRefresh: true,
 };
 
 // For angular panels we need to clean up properties when changing type
@@ -100,6 +101,7 @@ const mustKeepProps: { [str: string]: boolean } = {
   fieldConfig: true,
   maxDataPoints: true,
   interval: true,
+  panelRefresh: true,
   replaceVariables: true,
   libraryPanel: true,
   getDisplayTitle: true,
@@ -166,6 +168,8 @@ export class PanelModel implements DataConfigSource, IPanelModel {
 
   maxDataPoints?: number | null;
   interval?: string | null;
+  // The persisted key is `refresh`; this name keeps the existing refresh() method callable.
+  panelRefresh?: string;
   description?: string;
   links?: DataLink[];
   declare transparent: boolean;
@@ -232,8 +236,14 @@ export class PanelModel implements DataConfigSource, IPanelModel {
       delete this[property];
     }
 
+    this.panelRefresh = undefined;
+
     // copy properties from persisted model
     for (const property in model) {
+      if (property === 'refresh') {
+        this.panelRefresh = model[property] || undefined;
+        continue;
+      }
       (this as any)[property] = model[property];
     }
 
@@ -301,6 +311,10 @@ export class PanelModel implements DataConfigSource, IPanelModel {
       }
 
       model[property] = cloneDeep(this[property]);
+    }
+
+    if (this.panelRefresh) {
+      model.refresh = this.panelRefresh;
     }
 
     // clean libraryPanel from collapsed rows

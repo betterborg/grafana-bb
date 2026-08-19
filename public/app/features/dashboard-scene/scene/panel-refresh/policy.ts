@@ -37,6 +37,11 @@ export function getPanelRefreshInterval(refresh?: string): number | undefined {
 }
 
 export function getPanelRefreshValue(model: object): string | undefined {
+  const panelRefresh = Reflect.get(model, 'panelRefresh');
+  if (typeof panelRefresh === 'string' && panelRefresh) {
+    return panelRefresh;
+  }
+
   const refresh = Reflect.get(model, 'refresh');
-  return typeof refresh === 'string' ? refresh : undefined;
+  return typeof refresh === 'string' && refresh ? refresh : undefined;
 }

@@ -122,12 +122,7 @@ function buildVizPanelStateWithRunner(
     vizPanelState._UNSAFE_customMigrationHandler = getV2AngularMigrationHandler(angularMigration);
   }
 
-  if (
-    queryOptions.timeFrom ||
-    queryOptions.timeShift ||
-    queryOptions.timeCompare ||
-    (config.featureToggles.panelRefreshOverride && queryOptions.refresh)
-  ) {
+  if (queryOptions.timeFrom || queryOptions.timeShift || queryOptions.timeCompare) {
     vizPanelState.$timeRange = new PanelTimeRange({
       timeFrom: queryOptions.timeFrom,
       timeShift: queryOptions.timeShift,
@@ -145,7 +140,7 @@ export function buildVizPanel(panel: PanelKind, id?: number): VizPanel {
   addDashboardPanelChrome(vizPanelState);
 
   const vizPanel = new VizPanel(vizPanelState);
-  setPanelRefreshFor(vizPanel, panel.spec.data.spec.queryOptions.refresh);
+  setPanelRefreshFor(vizPanel, panel.spec.data.spec.queryOptions.refresh, false);
   return vizPanel;
 }
 
@@ -223,7 +218,7 @@ export function buildLibraryPanel(panel: LibraryPanelKind, id?: number): VizPane
   addDashboardPanelChrome(vizPanelState);
 
   const vizPanel = new VizPanel(vizPanelState);
-  setPanelRefreshFor(vizPanel);
+  setPanelRefreshFor(vizPanel, undefined, false);
   return vizPanel;
 }
 

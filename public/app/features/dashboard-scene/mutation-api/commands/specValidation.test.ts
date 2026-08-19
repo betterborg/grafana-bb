@@ -48,6 +48,25 @@ const validSpec = {
 // Missing the required `layout`/`title` and using a bogus cursorSync value.
 const invalidSpec = { cursorSync: 'nope', timeSettings: {} };
 
+const panelWithRefresh = {
+  kind: 'Panel',
+  spec: {
+    id: 1,
+    title: 'Panel',
+    links: [],
+    data: {
+      kind: 'QueryGroup',
+      spec: { queries: [], transformations: [], queryOptions: { refresh: 'off' } },
+    },
+    vizConfig: {
+      kind: 'VizConfig',
+      group: 'timeseries',
+      version: '',
+      spec: { options: {}, fieldConfig: { defaults: {}, overrides: [] } },
+    },
+  },
+};
+
 // The scene is only reached after validation passes, so an invalid-spec test
 // never touches it.
 const stubContext = { scene: {} as DashboardScene } satisfies MutationContext;
@@ -102,6 +121,7 @@ describe('APPLY_SPEC validate flag', () => {
       annotations: null as unknown as [],
       links: null as unknown as [],
       variables: null as unknown as [],
+      elements: { 'panel-1': panelWithRefresh },
     };
     mockTransformSaveModelSchemaV2ToScene.mockReturnValue({ state: {} });
 
@@ -113,6 +133,7 @@ describe('APPLY_SPEC validate flag', () => {
     expect(dto.spec.annotations).toEqual([]);
     expect(dto.spec.links).toEqual([]);
     expect(dto.spec.variables).toEqual([]);
+    expect(dto.spec.elements['panel-1'].spec.data.spec.queryOptions.refresh).toBe('off');
   });
 
   it('rebuilds from the raw spec untouched when validate is false', async () => {

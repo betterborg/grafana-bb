@@ -1,6 +1,8 @@
+import { config } from '@grafana/runtime';
 import { type SceneDataTransformer, SceneQueryRunner, VizPanel } from '@grafana/scenes';
 import {
   defaultDataQueryKind,
+  defaultLibraryPanelKind,
   defaultPanelSpec,
   type PanelKind,
   type PanelQueryKind,
@@ -10,11 +12,13 @@ import { SHARED_DASHBOARD_QUERY } from 'app/plugins/datasource/dashboard/constan
 import { MIXED_DATASOURCE_NAME } from 'app/plugins/datasource/mixed/MixedDataSource';
 
 import { DashboardSceneQueryRunner } from '../../scene/DashboardSceneQueryRunner';
-import { getPanelRefreshFor } from '../../scene/panel-refresh/PanelRefresh';
+import { getPanelRefreshFor, PanelRefresh } from '../../scene/panel-refresh/PanelRefresh';
 import { PanelTimeRange } from '../../scene/panel-timerange/PanelTimeRange';
 import { vizPanelToSchemaV2 } from '../transformSceneToSaveModelSchemaV2';
 
 import {
+  buildLibraryPanel,
+  buildLibraryPanelState,
   buildVizPanel,
   buildVizPanelState,
   ensureUniqueRefIds,
@@ -427,12 +431,67 @@ describe('buildVizPanel', () => {
     expect(buildVizPanelState(panel).$behaviors).toEqual([]);
   });
 
-  it('preserves panel refresh through the dashboard v2 builder and serializer', () => {
-    const viz = buildVizPanel(buildPanelWithQueryOptions({ refresh: '30s' }));
+  it.each([
+    ['inheritance', undefined, undefined],
+    ['empty inheritance', '', undefined],
+    ['off', 'off', 'off'],
+    ['an interval', '30s', '30s'],
+  ])(
+    'preserves panel refresh %s through the dashboard v2 builder and serializer',
+    (_description, refresh, expected) => {
+      const viz = buildVizPanel(buildPanelWithQueryOptions({ refresh }));
 
-    expect(getPanelRefreshFor(viz)?.state.refresh).toBe('30s');
-    const saved = vizPanelToSchemaV2(viz, undefined, false) as PanelKind;
-    expect(saved.spec.data.spec.queryOptions.refresh).toBe('30s');
+      expect(getPanelRefreshFor(viz)?.state.refresh).toBe(expected);
+      const saved = vizPanelToSchemaV2(viz, undefined, false) as PanelKind;
+      expect(saved.spec.data.spec.queryOptions.refresh).toBe(expected);
+    }
+  );
+
+  it('keeps shared state builders root-neutral while dashboard wrappers attach distinct controllers', () => {
+    const panel = buildPanelWithQueryOptions({ refresh: '30s' });
+    const neutralPanel = new VizPanel(buildVizPanelState(panel));
+    const neutralLibraryPanel = new VizPanel(buildLibraryPanelState(defaultLibraryPanelKind()));
+    const firstDashboardPanel = buildVizPanel(panel);
+    const secondDashboardPanel = buildVizPanel(panel);
+    const dashboardLibraryPanel = buildLibraryPanel(defaultLibraryPanelKind());
+
+    expect(getPanelRefreshFor(neutralPanel)).toBeUndefined();
+    expect(neutralPanel.state.$timeRange).toBeUndefined();
+    expect(getPanelRefreshFor(neutralLibraryPanel)).toBeUndefined();
+    expect(getPanelRefreshFor(firstDashboardPanel)).toBeDefined();
+    expect(getPanelRefreshFor(secondDashboardPanel)).toBeDefined();
+    expect(getPanelRefreshFor(dashboardLibraryPanel)).toBeDefined();
+    expect(getPanelRefreshFor(firstDashboardPanel)).not.toBe(getPanelRefreshFor(secondDashboardPanel));
+    expect(firstDashboardPanel.state.$behaviors?.filter((behavior) => behavior instanceof PanelRefresh)).toHaveLength(
+      1
+    );
+    expect(secondDashboardPanel.state.$behaviors?.filter((behavior) => behavior instanceof PanelRefresh)).toHaveLength(
+      1
+    );
+    expect(dashboardLibraryPanel.state.$behaviors?.filter((behavior) => behavior instanceof PanelRefresh)).toHaveLength(
+      1
+    );
+  });
+
+  it('attaches refresh interception only for an enabled explicit policy', () => {
+    const previousToggle = config.featureToggles.panelRefreshOverride;
+
+    try {
+      config.featureToggles.panelRefreshOverride = true;
+      expect(buildVizPanel(buildPanelWithQueryOptions({})).state.$timeRange).toBeUndefined();
+      expect(buildVizPanel(buildPanelWithQueryOptions({ refresh: 'off' })).state.$timeRange).toBeInstanceOf(
+        PanelTimeRange
+      );
+
+      config.featureToggles.panelRefreshOverride = false;
+      const disabledPanel = buildVizPanel(buildPanelWithQueryOptions({ refresh: '30s' }));
+      expect(disabledPanel.state.$timeRange).toBeUndefined();
+      expect(getPanelRefreshFor(disabledPanel)?.state.refresh).toBe('30s');
+      const saved = vizPanelToSchemaV2(disabledPanel, undefined, false) as PanelKind;
+      expect(saved.spec.data.spec.queryOptions.refresh).toBe('30s');
+    } finally {
+      config.featureToggles.panelRefreshOverride = previousToggle;
+    }
   });
 
   it.each([

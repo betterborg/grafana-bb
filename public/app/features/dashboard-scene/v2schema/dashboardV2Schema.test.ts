@@ -115,6 +115,51 @@ describe('dashboardV2SpecSchema', () => {
     expect(panel.spec.vizConfig.spec.fieldConfig.defaults).toEqual({ custom: { x: 1 } });
   });
 
+  it.each([
+    ['inheritance', undefined],
+    ['off', 'off'],
+    ['an interval', '30s'],
+  ])('preserves panel refresh %s while parsing the runtime schema', (_description, refresh) => {
+    const result = dashboardV2SpecSchema.safeParse(
+      minimalSpec({
+        elements: {
+          'panel-1': {
+            kind: 'Panel',
+            spec: {
+              id: 1,
+              title: 'P',
+              links: [],
+              data: {
+                kind: 'QueryGroup',
+                spec: {
+                  queries: [],
+                  transformations: [],
+                  queryOptions: refresh === undefined ? {} : { refresh },
+                },
+              },
+              vizConfig: {
+                kind: 'VizConfig',
+                group: 'timeseries',
+                version: '',
+                spec: { options: {}, fieldConfig: { defaults: {}, overrides: [] } },
+              },
+            },
+          },
+        },
+      })
+    );
+
+    expect(result.success).toBe(true);
+    if (!result.success) {
+      return;
+    }
+    const panel = result.data.elements['panel-1'];
+    if (panel.kind !== 'Panel') {
+      throw new Error('expected Panel');
+    }
+    expect(panel.spec.data.spec.queryOptions.refresh).toBe(refresh);
+  });
+
   it('validates a deeply nested recursive layout (rows -> tabs -> grid)', () => {
     const spec = minimalSpec({
       layout: {

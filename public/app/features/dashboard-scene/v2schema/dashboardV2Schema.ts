@@ -450,6 +450,7 @@ const queryOptionsSpecSchema = z.object({
   cacheTimeout: z.string().optional(),
   hideTimeOverride: z.boolean().optional(),
   timeCompare: z.string().optional(),
+  refresh: z.string().optional(),
 }) satisfies z.ZodType<QueryOptionsSpec>;
 
 const queryGroupKindSchema = z.object({

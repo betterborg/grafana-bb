@@ -15,7 +15,7 @@ import {
 } from '@grafana/data';
 import { mockTransformationsRegistry, reduceTransformer } from '@grafana/data/internal';
 import { getPanelPlugin } from '@grafana/data/test';
-import { setPluginImportUtils } from '@grafana/runtime';
+import { config, setPluginImportUtils } from '@grafana/runtime';
 import { setPanelPluginMetas } from '@grafana/runtime/internal';
 import {
   CustomVariable,
@@ -38,7 +38,7 @@ import { DefaultGridLayoutManager } from '../scene/layout-default/DefaultGridLay
 import { type RowRepeaterBehavior } from '../scene/layout-default/RowRepeaterBehavior';
 import { RowItem } from '../scene/layout-rows/RowItem';
 import { RowsLayoutManager } from '../scene/layout-rows/RowsLayoutManager';
-import { getPanelRefreshFor } from '../scene/panel-refresh/PanelRefresh';
+import { getPanelRefreshFor, PanelRefresh } from '../scene/panel-refresh/PanelRefresh';
 import { PanelTimeRange } from '../scene/panel-timerange/PanelTimeRange';
 import { NEW_LINK } from '../settings/links/utils';
 import { activateFullSceneTree, buildPanelRepeaterScene } from '../utils/test-utils';
@@ -399,12 +399,51 @@ describe('transformSceneToSaveModel', () => {
       expect(timeRange.state.compareWith).toBe('1w');
     });
 
-    it('preserves panel refresh through v1 save and load', () => {
-      const gridItem = buildGridItemFromPanelSchema({ refresh: '30s' });
+    it.each([
+      ['inheritance', undefined, undefined],
+      ['empty inheritance', '', undefined],
+      ['off', 'off', 'off'],
+      ['an interval', '30s', '30s'],
+    ])('preserves panel refresh %s through v1 save and load', (_description, refresh, expected) => {
+      const gridItem = buildGridItemFromPanelSchema({ refresh });
       const vizPanel = gridItem.state.body as VizPanel;
 
-      expect(getPanelRefreshFor(vizPanel)?.state.refresh).toBe('30s');
-      expect(gridItemToPanel(gridItem).refresh).toBe('30s');
+      expect(getPanelRefreshFor(vizPanel)?.state.refresh).toBe(expected);
+      expect(gridItemToPanel(gridItem).refresh).toBe(expected);
+    });
+
+    it('loads one distinct panel refresh controller per panel', () => {
+      const first = buildGridItemFromPanelSchema({ refresh: '30s' }).state.body as VizPanel;
+      const second = buildGridItemFromPanelSchema({ refresh: '30s' }).state.body as VizPanel;
+      const firstController = getPanelRefreshFor(first);
+      const secondController = getPanelRefreshFor(second);
+
+      expect(firstController).toBeDefined();
+      expect(secondController).toBeDefined();
+      expect(firstController).not.toBe(secondController);
+      expect(first.state.$behaviors?.filter((behavior) => behavior instanceof PanelRefresh)).toHaveLength(1);
+      expect(second.state.$behaviors?.filter((behavior) => behavior instanceof PanelRefresh)).toHaveLength(1);
+    });
+
+    it('attaches refresh interception only for an enabled explicit policy', () => {
+      const previousToggle = config.featureToggles.panelRefreshOverride;
+
+      try {
+        config.featureToggles.panelRefreshOverride = true;
+        expect((buildGridItemFromPanelSchema({}).state.body as VizPanel).state.$timeRange).toBeUndefined();
+        expect(
+          (buildGridItemFromPanelSchema({ refresh: 'off' }).state.body as VizPanel).state.$timeRange
+        ).toBeInstanceOf(PanelTimeRange);
+
+        config.featureToggles.panelRefreshOverride = false;
+        const disabledGridItem = buildGridItemFromPanelSchema({ refresh: '30s' });
+        const disabledPanel = disabledGridItem.state.body as VizPanel;
+        expect(disabledPanel.state.$timeRange).toBeUndefined();
+        expect(getPanelRefreshFor(disabledPanel)?.state.refresh).toBe('30s');
+        expect(gridItemToPanel(disabledGridItem).refresh).toBe('30s');
+      } finally {
+        config.featureToggles.panelRefreshOverride = previousToggle;
+      }
     });
 
     it('transparent panel', () => {

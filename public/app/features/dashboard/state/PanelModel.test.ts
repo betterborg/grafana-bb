@@ -285,6 +285,27 @@ describe('PanelModel', () => {
       expect(saveModel.events).toBe(undefined);
     });
 
+    it.each([
+      ['missing', undefined, undefined],
+      ['empty inheritance', '', undefined],
+      ['off', 'off', 'off'],
+      ['an interval', '30s', '30s'],
+    ])('getSaveModel preserves %s panel refresh', (_description, refresh, expected) => {
+      const panel = new PanelModel({ ...modelJson, refresh });
+
+      expect(panel.panelRefresh).toBe(expected);
+      expect(panel.refresh).toEqual(expect.any(Function));
+      expect(panel.getSaveModel().refresh).toBe(expected);
+    });
+
+    it('keeps panel refresh when changing visualization type', () => {
+      model.panelRefresh = '30s';
+
+      model.changePlugin(getPanelPlugin({ id: 'timeseries' }));
+
+      expect(model.panelRefresh).toBe('30s');
+    });
+
     it('getSaveModel should clean libraryPanels from a collapsed row', () => {
       const newmodelJson = {
         type: 'row',

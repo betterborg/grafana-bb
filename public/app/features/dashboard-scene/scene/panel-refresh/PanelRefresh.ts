@@ -246,8 +246,14 @@ export class PanelRefresh extends SceneObjectBase<PanelRefreshState> {
   }
 }
 
-export function setPanelRefreshFor(panel: VizPanel, refresh?: string): PanelRefresh {
-  if (config.featureToggles.panelRefreshOverride && !panel.state.$timeRange) {
+export function setPanelRefreshFor(panel: VizPanel, refresh?: string, interceptInherited = true): PanelRefresh {
+  refresh = refresh || undefined;
+
+  if (
+    config.featureToggles.panelRefreshOverride &&
+    (interceptInherited || getPanelRefreshPolicy(refresh) !== PanelRefreshPolicy.Inherit) &&
+    !panel.state.$timeRange
+  ) {
     panel.setState({ $timeRange: new PanelTimeRange() });
   }
 
