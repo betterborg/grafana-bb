@@ -40,8 +40,9 @@ import { VizPanelHeaderActions } from '../../scene/VizPanelHeaderActions';
 import { VizPanelSubHeader } from '../../scene/VizPanelSubHeader';
 import { type AutoGridItem } from '../../scene/layout-auto-grid/AutoGridItem';
 import { type DashboardGridItem } from '../../scene/layout-default/DashboardGridItem';
-import { setPanelRefreshFor } from '../../scene/panel-refresh/PanelRefresh';
+import { hasPanelRefreshIndicator, setPanelRefreshFor } from '../../scene/panel-refresh/PanelRefresh';
 import { PanelTimeRange } from '../../scene/panel-timerange/PanelTimeRange';
+import { getUpdatedHoverHeader } from '../../scene/panel-timerange/utils';
 import { setDashboardPanelContext } from '../../scene/setDashboardPanelContext';
 import { type DashboardLayoutManager } from '../../scene/types/DashboardLayoutManager';
 import { getVizPanelKeyForPanelId, isNewPanelQueryErrorsUIEnabled } from '../../utils/utils';
@@ -82,9 +83,6 @@ function buildVizPanelStateWithRunner(
   }
 
   const queryOptions = panel.spec.data.spec.queryOptions;
-  const timeOverrideShown =
-    (queryOptions.timeFrom || queryOptions.timeShift || queryOptions.timeCompare) && !queryOptions.hideTimeOverride;
-
   // Extract __angularMigration data if present
   // This data is used to run Angular panel migrations in v2 (e.g., singlestat -> stat)
   const rawOptions = panel.spec.vizConfig.spec.options ?? {};
@@ -107,7 +105,16 @@ function buildVizPanelStateWithRunner(
     // plugin's current version rather than migrating against a bogus value.
     pluginVersion: panel.spec.vizConfig.version || undefined,
     displayMode: panel.spec.transparent ? 'transparent' : 'default',
-    hoverHeader: !panel.spec.title && !timeOverrideShown,
+    hoverHeader: getUpdatedHoverHeader(
+      panel.spec.title ?? '',
+      {
+        timeFrom: queryOptions.timeFrom,
+        timeShift: queryOptions.timeShift,
+        compareWith: queryOptions.timeCompare,
+        hideTimeOverride: queryOptions.hideTimeOverride,
+      },
+      hasPanelRefreshIndicator(queryOptions.refresh)
+    ),
     hoverHeaderOffset: 0,
     seriesLimit: config.panelSeriesLimit,
     $data: createPanelDataProvider(panel, QueryRunner),

@@ -280,6 +280,24 @@ describe('LibraryPanelBehavior', () => {
       expect(firstPanel.state.$timeRange).toBeUndefined();
     });
 
+    it.each(['30s', 'off'])('keeps a titleless library panel with %s policy always visible', async (refresh) => {
+      config.featureToggles.panelRefreshOverride = true;
+
+      const { gridItem, behavior } = await buildTestSceneWithLibraryPanel({
+        refresh,
+        vizPanelTitle: '',
+        libPanelModelTitle: '',
+      });
+      const panel = gridItem.state.body;
+      expect(panel.state.hoverHeader).toBe(false);
+
+      behavior.setPanelFromLibPanel(buildLibraryPanel({ uid: '111', version: 2, refresh, title: '' }));
+      expect(panel.state.hoverHeader).toBe(false);
+
+      behavior.setPanelFromLibPanel(buildLibraryPanel({ uid: '111', version: 3, title: '' }));
+      expect(panel.state.hoverHeader).toBe(true);
+    });
+
     it('preserves a dashboard policy without installing interception when the feature is disabled', async () => {
       config.featureToggles.panelRefreshOverride = false;
 
@@ -502,10 +520,12 @@ function buildLibraryPanel({
   uid,
   version = 1,
   refresh,
+  title = 'LibraryPanel A title',
 }: {
   uid: string;
   version?: number;
   refresh?: string;
+  title?: string;
 }): LibraryPanel {
   return {
     name: 'LibraryPanel A',
@@ -513,7 +533,7 @@ function buildLibraryPanel({
     type: 'table',
     version,
     model: {
-      title: 'LibraryPanel A title',
+      title,
       type: 'table',
       options: { showHeader: true },
       fieldConfig: { defaults: {}, overrides: [] },

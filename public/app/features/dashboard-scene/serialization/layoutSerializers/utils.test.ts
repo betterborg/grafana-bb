@@ -569,6 +569,19 @@ describe('buildVizPanel', () => {
       expect(viz.state.hoverHeader).toBe(true);
     });
 
+    it.each(['30s', 'off'])('keeps a titleless explicit %s policy always visible', (refresh) => {
+      const previousToggle = config.featureToggles.panelRefreshOverride;
+      config.featureToggles.panelRefreshOverride = true;
+
+      try {
+        const viz = buildVizPanel(buildPanelWithQueryOptions({ refresh }, ''));
+
+        expect(viz.state.hoverHeader).toBe(false);
+      } finally {
+        config.featureToggles.panelRefreshOverride = previousToggle;
+      }
+    });
+
     it('hides hoverHeader when timeFrom is visible (no hideTimeOverride)', () => {
       const viz = buildVizPanel(buildPanelWithQueryOptions({ timeFrom: '2h' }, ''));
 

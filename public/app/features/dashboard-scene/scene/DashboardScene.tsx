@@ -119,7 +119,7 @@ import { DashboardGridItem } from './layout-default/DashboardGridItem';
 import { DefaultGridLayoutManager } from './layout-default/DefaultGridLayoutManager';
 import { addNewRowTo } from './layouts-shared/addNew';
 import { clearClipboard } from './layouts-shared/paste';
-import { setPanelRefreshFor } from './panel-refresh/PanelRefresh';
+import { getPanelRefreshFor, hasPanelRefreshIndicator, setPanelRefreshFor } from './panel-refresh/PanelRefresh';
 import { getPanelRefreshValue } from './panel-refresh/policy';
 import { getUpdatedHoverHeader } from './panel-timerange/utils';
 import { type AnyDashboardLayoutManager, type DashboardLayoutManager } from './types/DashboardLayoutManager';
@@ -1067,7 +1067,14 @@ export class DashboardScene extends SceneObjectBase<DashboardSceneState> impleme
   }
 
   public updatePanelTitle(panel: VizPanel, title: string) {
-    panel.setState({ title, hoverHeader: getUpdatedHoverHeader(title, panel.state.$timeRange?.state) });
+    panel.setState({
+      title,
+      hoverHeader: getUpdatedHoverHeader(
+        title,
+        panel.state.$timeRange?.state,
+        hasPanelRefreshIndicator(getPanelRefreshFor(panel)?.state.refresh)
+      ),
+    });
   }
 
   public async changePanelPlugin(
