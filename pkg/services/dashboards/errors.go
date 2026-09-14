@@ -69,6 +69,10 @@ var (
 		Reason:     "Dashboard refresh interval is too low",
 		StatusCode: 400,
 	}
+	ErrDashboardPanelRefreshIntervalInvalid = dashboardaccess.DashboardErr{
+		Reason:     "Panel refresh interval is invalid",
+		StatusCode: 400,
+	}
 	ErrDashboardCannotDeleteProvisionedDashboard = dashboardaccess.DashboardErr{
 		Reason:     "provisioned dashboard cannot be deleted",
 		StatusCode: 400,

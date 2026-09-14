@@ -913,6 +913,50 @@ func TestSaveDashboard(t *testing.T) {
 	})
 }
 
+func TestSaveDashboardRejectsInvalidPanelRefreshBeforePersistence(t *testing.T) {
+	service := &DashboardServiceImpl{
+		cfg: &setting.Cfg{MinRefreshInterval: "5s"},
+		log: log.New("test.logger"),
+		folderService: &foldertest.FakeService{
+			ExpectedFolder: &folder.Folder{},
+		},
+		ac:       actest.FakeAccessControl{ExpectedEvaluate: true},
+		features: featuremgmt.WithFeatures(featuremgmt.FlagPanelRefreshOverride, false),
+	}
+
+	storedDashboard := unstructured.Unstructured{Object: map[string]any{
+		"metadata": map[string]any{"name": "uid"},
+		"spec": map[string]any{
+			"title":  "stored title",
+			"panels": []any{map[string]any{"id": float64(1), "refresh": "10s"}},
+		},
+	}}
+	wantStoredDashboard := storedDashboard.DeepCopy()
+
+	query := &dashboards.SaveDashboardDTO{
+		OrgID: 1,
+		User:  &user.SignedInUser{UserID: 1},
+		Dashboard: &dashboards.Dashboard{
+			ID:    1,
+			UID:   "uid",
+			Title: "updated title",
+			Data: simplejson.NewFromAny(map[string]any{
+				"id":     1,
+				"uid":    "uid",
+				"title":  "updated title",
+				"panels": []any{map[string]any{"id": 1, "refresh": "25d"}},
+			}),
+		},
+	}
+
+	ctx, k8sCliMock := setupK8sDashboardTests(service)
+	_, err := service.SaveDashboard(ctx, query, false)
+	require.Equal(t, dashboards.ErrDashboardPanelRefreshIntervalInvalid, err)
+	k8sCliMock.AssertNotCalled(t, "Get", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything)
+	k8sCliMock.AssertNotCalled(t, "Update", mock.Anything, mock.Anything, mock.Anything, mock.Anything)
+	require.Equal(t, wantStoredDashboard, &storedDashboard)
+}
+
 func TestDeleteDashboard(t *testing.T) {
 	fakePublicDashboardService := publicdashboards.NewFakePublicDashboardServiceWrapper(t)
 	service := &DashboardServiceImpl{

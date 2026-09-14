@@ -711,6 +711,9 @@ func (dr *DashboardServiceImpl) BuildSaveDashboardCommand(ctx context.Context, d
 	if err := dr.ValidateDashboardRefreshInterval(dr.cfg.MinRefreshInterval, dash.Data.Get("refresh").MustString("")); err != nil {
 		return nil, err
 	}
+	if _, err := dashboards.ValidatePanelRefreshIntervals(dr.cfg.MinRefreshInterval, dash.Data.MustMap()); err != nil {
+		return nil, dashboards.ErrDashboardPanelRefreshIntervalInvalid
+	}
 
 	// Validate folder
 	if dash.FolderID != 0 || dash.FolderUID != "" { // nolint:staticcheck
