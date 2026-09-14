@@ -16,10 +16,19 @@ func TestValidatePanelRefreshInterval(t *testing.T) {
 		{name: "missing floor", refresh: "1s"},
 		{name: "empty", minimum: "5s"},
 		{name: "off", minimum: "5s", refresh: "off"},
+		{name: "uppercase off", minimum: "5s", refresh: "OFF"},
+		{name: "mixed-case off", minimum: "5s", refresh: "OfF"},
 		{name: "at floor", minimum: "5s", refresh: "5s"},
 		{name: "above floor", minimum: "5s", refresh: "1m"},
+		{name: "at scheduler limit", minimum: "5s", refresh: "2147483647ms"},
+		{name: "24 days", minimum: "5s", refresh: "24d"},
+		{name: "25 days", minimum: "5s", refresh: "25d", wantErr: true},
+		{name: "month unit exceeds scheduler limit", minimum: "5s", refresh: "1M", wantErr: true},
+		{name: "year unit exceeds scheduler limit", minimum: "5s", refresh: "1y", wantErr: true},
+		{name: "above scheduler limit", minimum: "5s", refresh: "2147483648ms", wantErr: true},
 		{name: "below floor", minimum: "5s", refresh: "1s", wantErr: true},
 		{name: "malformed", minimum: "5s", refresh: "sometimes", wantErr: true},
+		{name: "malformed with missing floor", refresh: "sometimes", wantErr: true},
 	}
 
 	for _, tt := range tests {
