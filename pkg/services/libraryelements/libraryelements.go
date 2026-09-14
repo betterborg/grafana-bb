@@ -114,12 +114,20 @@ func (l *LibraryElementService) validatePanelRefresh(modelJSON []byte) error {
 	if err := json.Unmarshal(modelJSON, &panel); err != nil {
 		return err
 	}
+	refresh, exists := panel["refresh"]
+	if !exists || refresh == nil {
+		return nil
+	}
+	refreshValue, ok := refresh.(string)
+	if !ok {
+		return fmt.Errorf("%w: panel refresh must be a string, got %T", model.ErrLibraryElementPanelRefreshIntervalInvalid, refresh)
+	}
 
 	minRefreshInterval := ""
 	if l.Cfg != nil {
 		minRefreshInterval = l.Cfg.MinRefreshInterval
 	}
-	if _, err := dashboards.ValidatePanelRefreshIntervals(minRefreshInterval, map[string]any{"panels": []any{panel}}); err != nil {
+	if err := dashboards.ValidatePanelRefreshInterval(minRefreshInterval, refreshValue); err != nil {
 		return fmt.Errorf("%w: %v", model.ErrLibraryElementPanelRefreshIntervalInvalid, err)
 	}
 	return nil
