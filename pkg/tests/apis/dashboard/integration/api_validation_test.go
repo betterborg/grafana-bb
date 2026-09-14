@@ -1052,9 +1052,12 @@ func runPanelRefreshOverrideValidationTests(t *testing.T, ctx TestContext) {
 		{name: "missing"},
 		{name: "empty", refresh: new("")},
 		{name: "off", refresh: new("off")},
+		{name: "uppercase off", refresh: new("OFF")},
 		{name: "at floor", refresh: new("10s")},
 		{name: "above floor", refresh: new("30s")},
+		{name: "at scheduler limit", refresh: new("2147483647ms")},
 		{name: "below floor", refresh: new("5s"), shouldErr: true},
+		{name: "above scheduler limit", refresh: new("2147483648ms"), shouldErr: true},
 		{name: "malformed", refresh: new("sometimes"), shouldErr: true},
 	}
 
