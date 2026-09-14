@@ -944,7 +944,7 @@ func TestSaveDashboardRejectsInvalidPanelRefreshBeforePersistence(t *testing.T) 
 				"id":     1,
 				"uid":    "uid",
 				"title":  "updated title",
-				"panels": []any{map[string]any{"id": 1, "refresh": "1s"}},
+				"panels": []any{map[string]any{"id": 1, "refresh": "25d"}},
 			}),
 		},
 	}

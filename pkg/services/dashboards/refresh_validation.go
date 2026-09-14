@@ -2,9 +2,13 @@ package dashboards
 
 import (
 	"fmt"
+	"strings"
+	"time"
 
 	"github.com/grafana/grafana-plugin-sdk-go/backend/gtime"
 )
+
+const maxPanelRefreshInterval = 2147483647 * time.Millisecond
 
 // PanelRefreshInterval identifies a panel refresh override in a dashboard document.
 type PanelRefreshInterval struct {
@@ -69,21 +73,26 @@ func ValidatePanelRefreshIntervals(minRefreshInterval string, dashboard map[stri
 
 // ValidatePanelRefreshInterval validates one panel refresh override against the configured floor.
 func ValidatePanelRefreshInterval(minRefreshInterval string, refresh string) error {
-	if minRefreshInterval == "" || refresh == "" || refresh == "off" {
+	if refresh == "" || strings.EqualFold(refresh, "off") {
 		return nil
-	}
-
-	minimum, err := gtime.ParseDuration(minRefreshInterval)
-	if err != nil {
-		return fmt.Errorf("parsing min refresh interval %q failed: %w", minRefreshInterval, err)
 	}
 
 	interval, err := gtime.ParseDuration(refresh)
 	if err != nil {
 		return fmt.Errorf("parsing panel refresh duration %q failed: %w", refresh, err)
 	}
-	if interval < minimum {
+	if interval > maxPanelRefreshInterval {
 		return ErrDashboardPanelRefreshIntervalInvalid
+	}
+
+	if minRefreshInterval != "" {
+		minimum, err := gtime.ParseDuration(minRefreshInterval)
+		if err != nil {
+			return fmt.Errorf("parsing min refresh interval %q failed: %w", minRefreshInterval, err)
+		}
+		if interval < minimum {
+			return ErrDashboardPanelRefreshIntervalInvalid
+		}
 	}
 
 	return nil
