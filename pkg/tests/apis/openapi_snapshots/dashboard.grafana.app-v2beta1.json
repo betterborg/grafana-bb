@@ -4422,6 +4422,9 @@
             "type": "integer",
             "format": "int64"
           },
+          "refresh": {
+            "type": "string"
+          },
           "timeCompare": {
             "type": "string"
           },
@@ -6600,6 +6603,9 @@
           "queryCachingTTL": {
             "type": "integer",
             "format": "int64"
+          },
+          "refresh": {
+            "type": "string"
           },
           "timeCompare": {
             "type": "string"

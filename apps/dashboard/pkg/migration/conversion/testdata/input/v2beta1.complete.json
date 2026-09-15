@@ -108,7 +108,9 @@
                   }
                 }
               ],
-              "queryOptions": {}
+              "queryOptions": {
+                "refresh": "30s"
+              }
             }
           },
           "vizConfig": {

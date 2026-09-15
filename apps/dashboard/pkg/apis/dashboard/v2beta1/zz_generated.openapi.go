@@ -3580,6 +3580,12 @@ func schema_pkg_apis_dashboard_v2beta1_DashboardQueryOptionsSpec(ref common.Refe
 							Format: "int64",
 						},
 					},
+					"refresh": {
+						SchemaProps: spec.SchemaProps{
+							Type:   []string{"string"},
+							Format: "",
+						},
+					},
 					"timeShift": {
 						SchemaProps: spec.SchemaProps{
 							Type:   []string{"string"},
@@ -6857,6 +6863,12 @@ func schema_pkg_apis_dashboard_v2beta1_NotebookQueryOptionsSpec(ref common.Refer
 						SchemaProps: spec.SchemaProps{
 							Type:   []string{"integer"},
 							Format: "int64",
+						},
+					},
+					"refresh": {
+						SchemaProps: spec.SchemaProps{
+							Type:   []string{"string"},
+							Format: "",
 						},
 					},
 					"timeShift": {

@@ -166,6 +166,8 @@ type Panel struct {
 	MaxPerRow *float64 `json:"maxPerRow,omitempty"`
 	// The maximum number of data points that the panel queries are retrieving.
 	MaxDataPoints *float64 `json:"maxDataPoints,omitempty"`
+	// Overrides the dashboard refresh interval for this panel. An empty value inherits the dashboard interval and "off" disables automatic refresh.
+	Refresh *string `json:"refresh,omitempty"`
 	// List of transformations that are applied to the panel data before rendering.
 	// When there are multiple transformations, Grafana applies them in the order they are listed.
 	// Each transformation creates a result set that then passes on to the next transformation in the processing pipeline.

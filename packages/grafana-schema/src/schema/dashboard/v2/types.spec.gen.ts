@@ -246,6 +246,7 @@ export interface QueryOptionsSpec {
 	timeFrom?: string;
 	timeTo?: string;
 	maxDataPoints?: number;
+	refresh?: string;
 	timeShift?: string;
 	queryCachingTTL?: number;
 	interval?: string;

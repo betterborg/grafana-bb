@@ -293,6 +293,7 @@ func convertTransformation_V2alpha1_to_V2beta1(in *dashv2alpha1.DashboardTransfo
 func convertQueryOptions_V2alpha1_to_V2beta1(in *dashv2alpha1.DashboardQueryOptionsSpec, out *dashv2beta1.DashboardQueryOptionsSpec) {
 	out.TimeFrom = in.TimeFrom
 	out.MaxDataPoints = in.MaxDataPoints
+	out.Refresh = in.Refresh
 	out.TimeShift = in.TimeShift
 	out.TimeCompare = in.TimeCompare
 	out.QueryCachingTTL = in.QueryCachingTTL

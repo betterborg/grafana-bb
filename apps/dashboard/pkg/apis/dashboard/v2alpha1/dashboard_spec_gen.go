@@ -411,6 +411,7 @@ func (DashboardDataTopic) OpenAPIModelName() string {
 type DashboardQueryOptionsSpec struct {
 	TimeFrom         *string `json:"timeFrom,omitempty"`
 	MaxDataPoints    *int64  `json:"maxDataPoints,omitempty"`
+	Refresh          *string `json:"refresh,omitempty"`
 	TimeShift        *string `json:"timeShift,omitempty"`
 	TimeCompare      *string `json:"timeCompare,omitempty"`
 	QueryCachingTTL  *int64  `json:"queryCachingTTL,omitempty"`

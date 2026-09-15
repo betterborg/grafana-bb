@@ -951,6 +951,7 @@ export type DashboardQueryOptionsSpec = {
   interval?: string;
   maxDataPoints?: number;
   queryCachingTTL?: number;
+  refresh?: string;
   timeCompare?: string;
   timeFrom?: string;
   timeShift?: string;
@@ -1865,6 +1866,7 @@ export type NotebookQueryOptionsSpec = {
   interval?: string;
   maxDataPoints?: number;
   queryCachingTTL?: number;
+  refresh?: string;
   timeCompare?: string;
   timeFrom?: string;
   timeShift?: string;

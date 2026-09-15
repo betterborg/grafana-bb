@@ -505,6 +505,9 @@ QueryOptionsSpec: {
 	timeFrom?:         string
 	timeTo?:           string
 	maxDataPoints?:    int
+	// Overrides the dashboard refresh interval. An absent or empty value inherits the dashboard interval; otherwise, use a
+	// duration or "off" to disable automatic refresh. Lowercase "off" is canonical, but input is matched case-insensitively.
+	refresh?:          string
 	timeShift?:        string
 	queryCachingTTL?:  int
 	interval?:         string

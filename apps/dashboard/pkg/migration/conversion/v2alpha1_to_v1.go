@@ -1169,6 +1169,9 @@ func convertPanelKindToV1(panelKind *dashv2alpha1.DashboardPanelKind, panel map[
 	if queryOptions.MaxDataPoints != nil {
 		panel["maxDataPoints"] = *queryOptions.MaxDataPoints
 	}
+	if queryOptions.Refresh != nil {
+		panel["refresh"] = *queryOptions.Refresh
+	}
 	if queryOptions.Interval != nil {
 		panel["interval"] = *queryOptions.Interval
 	}

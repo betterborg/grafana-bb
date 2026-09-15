@@ -3388,6 +3388,12 @@ func schema_pkg_apis_dashboard_v2alpha1_DashboardQueryOptionsSpec(ref common.Ref
 							Format: "int64",
 						},
 					},
+					"refresh": {
+						SchemaProps: spec.SchemaProps{
+							Type:   []string{"string"},
+							Format: "",
+						},
+					},
 					"timeShift": {
 						SchemaProps: spec.SchemaProps{
 							Type:   []string{"string"},

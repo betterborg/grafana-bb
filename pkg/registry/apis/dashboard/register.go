@@ -485,6 +485,9 @@ func (b *DashboardsAPIBuilder) validateCreate(ctx context.Context, a admission.A
 	if err := b.dashboardService.ValidateDashboardRefreshInterval(b.minRefreshInterval, refresh); err != nil {
 		return apierrors.NewBadRequest(err.Error())
 	}
+	if err := validatePanelRefreshIntervals(b.minRefreshInterval, dashObj); err != nil {
+		return err
+	}
 
 	// Validate tags
 	if err := validateDashboardTags(dashObj); err != nil {
@@ -595,7 +598,22 @@ func (b *DashboardsAPIBuilder) validateUpdate(ctx context.Context, a admission.A
 	if err := b.dashboardService.ValidateDashboardRefreshInterval(b.minRefreshInterval, refresh); err != nil {
 		return apierrors.NewBadRequest(err.Error())
 	}
+	if err := validatePanelRefreshIntervals(b.minRefreshInterval, newDashObj); err != nil {
+		return err
+	}
 
+	return nil
+}
+
+func validatePanelRefreshIntervals(minRefreshInterval string, obj runtime.Object) error {
+	dashboard, err := runtime.DefaultUnstructuredConverter.ToUnstructured(obj)
+	if err != nil {
+		return fmt.Errorf("converting dashboard for panel refresh validation: %w", err)
+	}
+
+	if _, err := dashboards.ValidatePanelRefreshIntervals(minRefreshInterval, dashboard); err != nil {
+		return apierrors.NewBadRequest(dashboards.ErrDashboardPanelRefreshIntervalInvalid.Reason)
+	}
 	return nil
 }
 

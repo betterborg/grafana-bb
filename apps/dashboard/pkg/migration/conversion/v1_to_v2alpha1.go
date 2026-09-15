@@ -2382,6 +2382,9 @@ func buildQueryOptions(panelMap map[string]interface{}) dashv2alpha1.DashboardQu
 		maxDP := int64(maxDataPoints)
 		queryOptions.MaxDataPoints = &maxDP
 	}
+	if refresh, ok := panelMap["refresh"].(string); ok {
+		queryOptions.Refresh = &refresh
+	}
 	if interval := schemaversion.GetStringValue(panelMap, "interval"); interval != "" {
 		queryOptions.Interval = &interval
 	}
@@ -2451,7 +2454,7 @@ var knownPanelProperties = map[string]bool{
 	"title": true, "description": true, "transparent": true, "datasource": true,
 	"gridPos": true, "links": true, "repeat": true, "repeatDirection": true,
 	"maxPerRow": true, "maxDataPoints": true, "transformations": true,
-	"interval": true, "timeFrom": true, "timeShift": true, "hideTimeOverride": true,
+	"refresh": true, "interval": true, "timeFrom": true, "timeShift": true, "hideTimeOverride": true,
 	"timeCompare": true, "libraryPanel": true, "cacheTimeout": true,
 	"queryCachingTTL": true, "options": true, "fieldConfig": true, "autoMigrateFrom": true,
 }

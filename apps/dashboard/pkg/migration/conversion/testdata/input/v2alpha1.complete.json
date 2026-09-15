@@ -105,7 +105,9 @@
                   }
                 }
               ],
-              "queryOptions": {}
+              "queryOptions": {
+                "refresh": "off"
+              }
             }
           },
           "vizConfig": {

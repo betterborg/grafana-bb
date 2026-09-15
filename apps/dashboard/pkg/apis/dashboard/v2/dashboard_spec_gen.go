@@ -409,6 +409,7 @@ type DashboardQueryOptionsSpec struct {
 	TimeFrom         *string `json:"timeFrom,omitempty"`
 	TimeTo           *string `json:"timeTo,omitempty"`
 	MaxDataPoints    *int64  `json:"maxDataPoints,omitempty"`
+	Refresh          *string `json:"refresh,omitempty"`
 	TimeShift        *string `json:"timeShift,omitempty"`
 	QueryCachingTTL  *int64  `json:"queryCachingTTL,omitempty"`
 	Interval         *string `json:"interval,omitempty"`

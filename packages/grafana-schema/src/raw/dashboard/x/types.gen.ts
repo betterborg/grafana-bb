@@ -936,6 +936,10 @@ export interface Panel {
    */
   queryCachingTTL?: number;
   /**
+   * Overrides the dashboard refresh interval for this panel. An empty value inherits the dashboard interval and "off" disables automatic refresh.
+   */
+  refresh?: string;
+  /**
    * Name of template variable to repeat for.
    */
   repeat?: string;

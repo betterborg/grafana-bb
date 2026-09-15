@@ -17,6 +17,8 @@ import (
 
 	dashboardV0 "github.com/grafana/grafana/apps/dashboard/pkg/apis/dashboard/v0alpha1"
 	dashboardV1 "github.com/grafana/grafana/apps/dashboard/pkg/apis/dashboard/v1"
+	dashboardV1beta1 "github.com/grafana/grafana/apps/dashboard/pkg/apis/dashboard/v1beta1"
+	dashboardV2 "github.com/grafana/grafana/apps/dashboard/pkg/apis/dashboard/v2"
 	dashboardV2alpha1 "github.com/grafana/grafana/apps/dashboard/pkg/apis/dashboard/v2alpha1"
 	dashboardV2beta1 "github.com/grafana/grafana/apps/dashboard/pkg/apis/dashboard/v2beta1"
 	foldersV1 "github.com/grafana/grafana/apps/folder/pkg/apis/folder/v1"
@@ -61,8 +63,8 @@ func TestIntegrationDashboardAPIValidation(t *testing.T) {
 
 	// Create a K8sTestHelper which will set up a real API server
 	helper := apis.NewK8sTestHelper(t, testinfra.GrafanaOpts{
-		DisableAnonymous:     true,
-		EnableFeatureToggles: []string{},
+		DisableAnonymous:      true,
+		DisableFeatureToggles: []string{featuremgmt.FlagPanelRefreshOverride},
 	})
 
 	t.Cleanup(func() {
@@ -76,6 +78,10 @@ func TestIntegrationDashboardAPIValidation(t *testing.T) {
 
 	t.Run("Dashboard validation tests", func(t *testing.T) {
 		runDashboardValidationTests(t, org1Ctx)
+	})
+
+	t.Run("Panel refresh override validation tests", func(t *testing.T) {
+		runPanelRefreshOverrideValidationTests(t, org1Ctx)
 	})
 
 	t.Run("Dashboard quota tests", func(t *testing.T) {
@@ -1017,6 +1023,167 @@ func createFolderObject(t *testing.T, title string, namespace string, parentFold
 	}
 
 	return folderObj
+}
+
+func runPanelRefreshOverrideValidationTests(t *testing.T, ctx TestContext) {
+	t.Helper()
+
+	versions := []struct {
+		name       string
+		gvr        schema.GroupVersionResource
+		apiVersion string
+		kind       string
+		v2         bool
+		v2alpha1   bool
+	}{
+		{name: "v0alpha1", gvr: dashboardV0.DashboardResourceInfo.GroupVersionResource(), apiVersion: dashboardV0.DashboardResourceInfo.TypeMeta().APIVersion, kind: dashboardV0.DashboardResourceInfo.TypeMeta().Kind},
+		{name: "v1beta1", gvr: dashboardV1beta1.DashboardResourceInfo.GroupVersionResource(), apiVersion: dashboardV1beta1.DashboardResourceInfo.TypeMeta().APIVersion, kind: dashboardV1beta1.DashboardResourceInfo.TypeMeta().Kind},
+		{name: "v1", gvr: dashboardV1.DashboardResourceInfo.GroupVersionResource(), apiVersion: dashboardV1.DashboardResourceInfo.TypeMeta().APIVersion, kind: dashboardV1.DashboardResourceInfo.TypeMeta().Kind},
+		{name: "v2alpha1", gvr: dashboardV2alpha1.DashboardResourceInfo.GroupVersionResource(), apiVersion: dashboardV2alpha1.DashboardResourceInfo.TypeMeta().APIVersion, kind: dashboardV2alpha1.DashboardResourceInfo.TypeMeta().Kind, v2: true, v2alpha1: true},
+		{name: "v2beta1", gvr: dashboardV2beta1.DashboardResourceInfo.GroupVersionResource(), apiVersion: dashboardV2beta1.DashboardResourceInfo.TypeMeta().APIVersion, kind: dashboardV2beta1.DashboardResourceInfo.TypeMeta().Kind, v2: true},
+		{name: "v2", gvr: dashboardV2.DashboardResourceInfo.GroupVersionResource(), apiVersion: dashboardV2.DashboardResourceInfo.TypeMeta().APIVersion, kind: dashboardV2.DashboardResourceInfo.TypeMeta().Kind, v2: true},
+	}
+
+	testCases := []struct {
+		name      string
+		refresh   *string
+		shouldErr bool
+	}{
+		{name: "missing"},
+		{name: "empty", refresh: new("")},
+		{name: "off", refresh: new("off")},
+		{name: "uppercase off", refresh: new("OFF")},
+		{name: "at floor", refresh: new("10s")},
+		{name: "above floor", refresh: new("30s")},
+		{name: "at scheduler limit", refresh: new("2147483647ms")},
+		{name: "below floor", refresh: new("5s"), shouldErr: true},
+		{name: "above scheduler limit", refresh: new("2147483648ms"), shouldErr: true},
+		{name: "malformed", refresh: new("sometimes"), shouldErr: true},
+	}
+
+	for _, version := range versions {
+		t.Run(version.name, func(t *testing.T) {
+			client := getResourceClient(t, ctx.Helper, ctx.AdminUser, version.gvr)
+			for _, tc := range testCases {
+				t.Run(tc.name, func(t *testing.T) {
+					obj := panelRefreshDashboardObject(version.apiVersion, version.kind, version.v2, version.v2alpha1, tc.refresh)
+					created, err := client.Resource.Create(context.Background(), obj, v1.CreateOptions{})
+					if tc.shouldErr {
+						require.Error(t, err)
+
+						baseline := panelRefreshDashboardObject(version.apiVersion, version.kind, version.v2, version.v2alpha1, nil)
+						baseline, err = client.Resource.Create(context.Background(), baseline, v1.CreateOptions{})
+						require.NoError(t, err)
+						setPanelRefresh(baseline, version.v2, tc.refresh)
+						_, err = client.Resource.Update(context.Background(), baseline, v1.UpdateOptions{})
+						require.Error(t, err)
+						require.NoError(t, client.Resource.Delete(context.Background(), baseline.GetName(), v1.DeleteOptions{}))
+						return
+					}
+
+					require.NoError(t, err)
+					_, err = client.Resource.Update(context.Background(), created, v1.UpdateOptions{})
+					require.NoError(t, err)
+					require.NoError(t, client.Resource.Delete(context.Background(), created.GetName(), v1.DeleteOptions{}))
+				})
+			}
+		})
+	}
+}
+
+func panelRefreshDashboardObject(apiVersion string, kind string, v2 bool, v2alpha1 bool, refresh *string) *unstructured.Unstructured {
+	queryOptions := map[string]interface{}{}
+	if refresh != nil {
+		queryOptions["refresh"] = *refresh
+	}
+
+	spec := map[string]interface{}{
+		"title": "Panel refresh validation",
+	}
+	if !v2 {
+		spec["schemaVersion"] = 42
+		spec["panels"] = []interface{}{map[string]interface{}{
+			"id":      1,
+			"type":    "timeseries",
+			"title":   "Panel",
+			"refresh": queryOptions["refresh"],
+		}}
+		if refresh == nil {
+			delete(spec["panels"].([]interface{})[0].(map[string]interface{}), "refresh")
+		}
+	} else {
+		vizConfig := map[string]interface{}{
+			"kind":    "VizConfig",
+			"group":   "timeseries",
+			"version": "",
+			"spec": map[string]interface{}{
+				"options":     map[string]interface{}{},
+				"fieldConfig": map[string]interface{}{"defaults": map[string]interface{}{}, "overrides": []interface{}{}},
+			},
+		}
+		if v2alpha1 {
+			vizConfig = map[string]interface{}{
+				"kind": "timeseries",
+				"spec": map[string]interface{}{
+					"pluginVersion": "",
+					"options":       map[string]interface{}{},
+					"fieldConfig":   map[string]interface{}{"defaults": map[string]interface{}{}, "overrides": []interface{}{}},
+				},
+			}
+		}
+
+		spec = map[string]interface{}{
+			"title":       "Panel refresh validation",
+			"annotations": []interface{}{},
+			"cursorSync":  "Off",
+			"elements": map[string]interface{}{
+				"panel": map[string]interface{}{
+					"kind": "Panel",
+					"spec": map[string]interface{}{
+						"id": 1, "title": "Panel", "links": []interface{}{},
+						"data": map[string]interface{}{"kind": "QueryGroup", "spec": map[string]interface{}{
+							"queries": []interface{}{}, "transformations": []interface{}{}, "queryOptions": queryOptions,
+						}},
+						"vizConfig": vizConfig,
+					},
+				},
+			},
+			"layout": map[string]interface{}{
+				"kind": "GridLayout",
+				"spec": map[string]interface{}{"items": []interface{}{map[string]interface{}{
+					"kind": "GridLayoutItem", "spec": map[string]interface{}{
+						"x": 0, "y": 0, "width": 12, "height": 8,
+						"element": map[string]interface{}{"kind": "ElementReference", "name": "panel"},
+					},
+				}}},
+			},
+			"links":        []interface{}{},
+			"tags":         []interface{}{},
+			"timeSettings": map[string]interface{}{},
+			"variables":    []interface{}{},
+		}
+	}
+
+	return &unstructured.Unstructured{Object: map[string]interface{}{
+		"apiVersion": apiVersion,
+		"kind":       kind,
+		"metadata": map[string]interface{}{
+			"generateName": "panel-refresh-validation-",
+			"annotations":  map[string]interface{}{"grafana.app/grant-permissions": "default"},
+		},
+		"spec": spec,
+	}}
+}
+
+func setPanelRefresh(dashboard *unstructured.Unstructured, v2 bool, refresh *string) {
+	spec := dashboard.Object["spec"].(map[string]interface{})
+	if v2 {
+		queryOptions := spec["elements"].(map[string]interface{})["panel"].(map[string]interface{})["spec"].(map[string]interface{})["data"].(map[string]interface{})["spec"].(map[string]interface{})["queryOptions"].(map[string]interface{})
+		queryOptions["refresh"] = *refresh
+		return
+	}
+	panel := spec["panels"].([]interface{})[0].(map[string]interface{})
+	panel["refresh"] = *refresh
 }
 
 // Create a folder using Kubernetes API

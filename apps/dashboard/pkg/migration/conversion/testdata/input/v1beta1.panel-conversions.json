@@ -74,6 +74,7 @@
           }
         },
         "pluginVersion": "10.0.0",
+        "refresh": "off",
         "targets": [
           {
             "datasource": {
@@ -222,6 +223,7 @@
         },
         "pluginVersion": "9.5.0",
         "queryCachingTTL": 300,
+        "refresh": "30s",
         "targets": [
           {
             "bucketAggs": [
@@ -338,4 +340,4 @@
     },
     "links": []
   }
-} 
+}
