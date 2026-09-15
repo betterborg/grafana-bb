@@ -663,7 +663,9 @@ lineage: schemas: [{
 			// The maximum number of data points that the panel queries are retrieving.
 			maxDataPoints?: number
 
-			// Overrides the dashboard refresh interval for this panel. An empty value inherits the dashboard interval and "off" disables automatic refresh.
+			// Overrides the dashboard refresh interval for this panel. An absent or empty value inherits the dashboard interval;
+			// otherwise, use a duration or "off" to disable automatic refresh. Lowercase "off" is canonical, but input is
+			// matched case-insensitively.
 			refresh?: string
 
 			// List of transformations that are applied to the panel data before rendering.
