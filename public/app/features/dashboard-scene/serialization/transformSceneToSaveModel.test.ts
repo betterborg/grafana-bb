@@ -38,6 +38,7 @@ import { DefaultGridLayoutManager } from '../scene/layout-default/DefaultGridLay
 import { type RowRepeaterBehavior } from '../scene/layout-default/RowRepeaterBehavior';
 import { RowItem } from '../scene/layout-rows/RowItem';
 import { RowsLayoutManager } from '../scene/layout-rows/RowsLayoutManager';
+import { getPanelRefreshFor } from '../scene/panel-refresh/PanelRefresh';
 import { PanelTimeRange } from '../scene/panel-timerange/PanelTimeRange';
 import { NEW_LINK } from '../settings/links/utils';
 import { activateFullSceneTree, buildPanelRepeaterScene } from '../utils/test-utils';
@@ -396,6 +397,14 @@ describe('transformSceneToSaveModel', () => {
 
       expect(timeRange).toBeInstanceOf(PanelTimeRange);
       expect(timeRange.state.compareWith).toBe('1w');
+    });
+
+    it('preserves panel refresh through v1 save and load', () => {
+      const gridItem = buildGridItemFromPanelSchema({ refresh: '30s' });
+      const vizPanel = gridItem.state.body as VizPanel;
+
+      expect(getPanelRefreshFor(vizPanel)?.state.refresh).toBe('30s');
+      expect(gridItemToPanel(gridItem).refresh).toBe('30s');
     });
 
     it('transparent panel', () => {

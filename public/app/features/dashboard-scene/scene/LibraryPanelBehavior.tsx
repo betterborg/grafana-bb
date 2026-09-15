@@ -21,6 +21,8 @@ import { VizPanelLinks, VizPanelLinksMenu } from './PanelLinks';
 import { panelLinksBehavior } from './PanelMenuBehavior';
 import { PanelNotices } from './PanelNotices';
 import { DashboardGridItem } from './layout-default/DashboardGridItem';
+import { getPanelRefreshFor } from './panel-refresh/PanelRefresh';
+import { getPanelRefreshValue } from './panel-refresh/policy';
 import { PanelTimeRange } from './panel-timerange/PanelTimeRange';
 import { getUpdatedHoverHeader } from './panel-timerange/utils';
 
@@ -58,6 +60,7 @@ export class LibraryPanelBehavior extends SceneObjectBase<LibraryPanelBehaviorSt
     }
 
     const libPanelModel = new PanelModel(libPanel.model);
+    const panelRefresh = getPanelRefreshValue(libPanelModel);
 
     // Use dashboard panel ID for data layer filtering
     const dashboardPanelId = getPanelIdForVizPanel(vizPanel);
@@ -81,7 +84,7 @@ export class LibraryPanelBehavior extends SceneObjectBase<LibraryPanelBehaviorSt
     }
 
     const timeRange =
-      libPanelModel.timeFrom || libPanelModel.timeShift
+      libPanelModel.timeFrom || libPanelModel.timeShift || (config.featureToggles.panelRefreshOverride && panelRefresh)
         ? new PanelTimeRange({
             timeFrom: libPanelModel.timeFrom,
             timeShift: libPanelModel.timeShift,
@@ -107,6 +110,7 @@ export class LibraryPanelBehavior extends SceneObjectBase<LibraryPanelBehaviorSt
     }
 
     vizPanel.setState(vizPanelState);
+    getPanelRefreshFor(vizPanel)?.setState({ refresh: panelRefresh });
     vizPanel.changePluginType(libPanelModel.type, vizPanelState.options, vizPanelState.fieldConfig);
 
     this.setState({ _loadedPanel: libPanel, isLoaded: true, name: libPanel.name });
