@@ -1,5 +1,5 @@
 import { getPanelPluginMetasMapSync, type PanelPluginMetas } from '@grafana/runtime/internal';
-import { type SceneDataProvider, SceneDataTransformer } from '@grafana/scenes';
+import { type QueryRunnerState, type SceneDataProvider, SceneDataTransformer } from '@grafana/scenes';
 import { type DataQuery, type DataSourceRef } from '@grafana/schema';
 import { type PanelModel } from 'app/features/dashboard/state/PanelModel';
 
@@ -8,7 +8,8 @@ import { DashboardSceneQueryRunner } from '../scene/DashboardSceneQueryRunner';
 
 export function createPanelDataProvider(
   panel: PanelModel,
-  panelMetas: PanelPluginMetas = getPanelPluginMetasMapSync()
+  panelMetas: PanelPluginMetas = getPanelPluginMetasMapSync(),
+  QueryRunner: QueryRunnerConstructor = DashboardSceneQueryRunner
 ): SceneDataProvider | undefined {
   // Skip setting query runner for panels without queries
   if (!panel.targets?.length) {
@@ -22,7 +23,7 @@ export function createPanelDataProvider(
 
   let dataProvider: SceneDataProvider | undefined = undefined;
 
-  dataProvider = new DashboardSceneQueryRunner({
+  dataProvider = new QueryRunner({
     // If panel.datasource is not defined, we use the first datasource from the targets (queries)
     datasource: panel.datasource ?? findFirstDatasource(panel.targets),
     queries: panel.targets,
@@ -34,7 +35,7 @@ export function createPanelDataProvider(
     dataLayerFilter: {
       panelId: panel.id,
     },
-    $behaviors: [new DashboardDatasourceBehaviour({})],
+    $behaviors: QueryRunner === DashboardSceneQueryRunner ? [new DashboardDatasourceBehaviour({})] : [],
   });
 
   // Wrap inner data provider in a data transformer
@@ -43,6 +44,8 @@ export function createPanelDataProvider(
     transformations: panel.transformations || [],
   });
 }
+
+type QueryRunnerConstructor = new (initialState: QueryRunnerState) => SceneDataProvider;
 
 function findFirstDatasource(targets: DataQuery[]): DataSourceRef | undefined {
   const datasource = targets.find((t) => Boolean(t.datasource))?.datasource;

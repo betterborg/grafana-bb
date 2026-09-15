@@ -182,13 +182,15 @@ export function libraryVizPanelToSaveModel(vizPanel: VizPanel) {
   }
 
   // we need all the panel properties to save the library panel,
-  // so we clone it and remove the behaviour to get what we need
+  // so we clone it and remove the library behaviour to get what we need
+  const panelForSave = vizPanel.clone();
+  getLibraryPanelBehavior(panelForSave)?.unlink();
   const saveModel = {
     ..._loadedPanel,
     uid,
     name,
     type: vizPanel.state.pluginId,
-    model: vizPanelToPanel(vizPanel.clone({ $behaviors: undefined }), gridPos, false, layoutItem),
+    model: vizPanelToPanel(panelForSave, gridPos, false, layoutItem),
     kind: LibraryElementKind.Panel,
     version: _loadedPanel?.version || 0,
   };

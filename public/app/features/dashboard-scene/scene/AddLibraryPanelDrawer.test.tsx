@@ -7,6 +7,7 @@ import { AddLibraryPanelDrawer } from './AddLibraryPanelDrawer';
 import { DashboardScene } from './DashboardScene';
 import { LibraryPanelBehavior } from './LibraryPanelBehavior';
 import { DefaultGridLayoutManager } from './layout-default/DefaultGridLayoutManager';
+import { getPanelRefreshFor } from './panel-refresh/PanelRefresh';
 
 jest.mock('@grafana/runtime', () => ({
   ...jest.requireActual('@grafana/runtime'),
@@ -34,6 +35,7 @@ describe('AddLibraryPanelWidget', () => {
       model: {
         title: 'model title',
         type: 'timeseries',
+        refresh: '30s',
       },
       name: 'name',
       version: 1,
@@ -50,6 +52,7 @@ describe('AddLibraryPanelWidget', () => {
     expect(panel.state.key).toBe('panel-1');
     expect(panel.state.title).toBe('model title');
     expect(panel.state.hoverHeader).toBe(false);
+    expect(getPanelRefreshFor(panel)?.state.refresh).toBe('30s');
   });
 
   it('should add library panel from menu and enter edit mode in a dashboard that is not already in edit mode', async () => {

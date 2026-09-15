@@ -64,7 +64,7 @@ import { AutoGridLayoutManager } from './layout-auto-grid/AutoGridLayoutManager'
 import { DashboardGridItem } from './layout-default/DashboardGridItem';
 import { DefaultGridLayoutManager } from './layout-default/DefaultGridLayoutManager';
 import { RowActions } from './layout-default/row-actions/RowActions';
-import { setPanelRefreshFor } from './panel-refresh/PanelRefresh';
+import { getPanelRefreshFor, setPanelRefreshFor } from './panel-refresh/PanelRefresh';
 import { PanelTimeRange } from './panel-timerange/PanelTimeRange';
 import { type DashboardSceneState } from './types/dashboard';
 
@@ -1719,6 +1719,7 @@ describe('DashboardScene', () => {
         const libPanel = {
           uid: 'uid',
           name: 'name',
+          model: { refresh: '30s' },
         };
 
         scene.createLibraryPanel(vizPanel, libPanel as LibraryPanel);
@@ -1730,6 +1731,7 @@ describe('DashboardScene', () => {
         expect(newGridItem.state.body).toBeInstanceOf(VizPanel);
         expect(behavior.state.uid).toBe('uid');
         expect(behavior.state.name).toBe('name');
+        expect(getPanelRefreshFor(newGridItem.state.body)?.state.refresh).toBe('30s');
       });
 
       it('Should create a library panel for auto grid panels', () => {
@@ -1753,6 +1755,7 @@ describe('DashboardScene', () => {
         const libPanel = {
           uid: 'uid',
           name: 'name',
+          model: { refresh: 'off' },
         };
 
         scene.createLibraryPanel(vizPanel, libPanel as LibraryPanel);
@@ -1762,6 +1765,7 @@ describe('DashboardScene', () => {
         expect(autoGridItem.state.body).toBeInstanceOf(VizPanel);
         expect(behavior.state.uid).toBe('uid');
         expect(behavior.state.name).toBe('name');
+        expect(getPanelRefreshFor(autoGridItem.state.body)?.state.refresh).toBe('off');
       });
     });
   });

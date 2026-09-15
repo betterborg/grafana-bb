@@ -1,14 +1,48 @@
+import { waitFor } from '@testing-library/react';
+import { of } from 'rxjs';
+
 // defaultDataQueryKind is not re-exported by ../types (that seam covers the notebook-specific and
 // forked names); it is a shared leaf type, so it comes straight from the generated module.
+import { getDefaultTimeRange, LoadingState, type PanelData } from '@grafana/data';
+import { getPanelPlugin } from '@grafana/data/test';
+import { config, type DataSourceSrv, setDataSourceSrv, setPluginImportUtils, setRunRequest } from '@grafana/runtime';
+import { SceneQueryRunner } from '@grafana/scenes';
 import { defaultDataQueryKind } from '@grafana/schema/apis/notebook/v2beta1';
 import { type Resource } from 'app/features/apiserver/types';
-import { getDashboardSceneFor } from 'app/features/dashboard-scene/utils/utils';
+import { DashboardSceneQueryRunner } from 'app/features/dashboard-scene/scene/DashboardSceneQueryRunner';
+import { getPanelRefreshFor } from 'app/features/dashboard-scene/scene/panel-refresh/PanelRefresh';
+import { PanelTimeRange } from 'app/features/dashboard-scene/scene/panel-timerange/PanelTimeRange';
+import { activateFullSceneTree } from 'app/features/dashboard-scene/utils/test-utils';
+import {
+  getDashboardSceneFor,
+  getLibraryPanelBehavior,
+  getQueryRunnerFor,
+} from 'app/features/dashboard-scene/utils/utils';
+import * as libraryPanelsApi from 'app/features/library-panels/state/api';
 
 import { NotebookScene } from '../scene/NotebookScene';
 import { defaultSpec as defaultNotebookSpec, type NotebookElement, type Spec as NotebookSpec } from '../types';
 
 import { transformNotebookSceneToSaveModel } from './transformNotebookSceneToSaveModel';
 import { transformNotebookToScene } from './transformNotebookToScene';
+
+setPluginImportUtils({
+  importPanelPlugin: () => Promise.resolve(getPanelPlugin({})),
+  getPanelPluginFromCache: () => undefined,
+});
+
+setDataSourceSrv({
+  get: jest.fn().mockResolvedValue({ getRef: () => ({ uid: 'gdev-prometheus', type: 'prometheus' }) }),
+} as unknown as DataSourceSrv);
+
+const runRequestMock = jest.fn().mockReturnValue(
+  of<PanelData>({
+    state: LoadingState.Done,
+    timeRange: getDefaultTimeRange(),
+    series: [],
+  })
+);
+setRunRequest(runRequestMock);
 
 // The spec fixture is written in the serializer's canonical form (explicit datasource per query,
 // description always present on panels, version '' etc.) so spec → scene → spec is an exact
@@ -153,12 +187,77 @@ describe('transformNotebookToScene / transformNotebookSceneToSaveModel', () => {
   // vizPanelToSchemaV2 handles it, so it would not survive. Add it here once they do.
   it('round-trips cells, order, source, panel config, timeSettings and metadata', () => {
     const spec = notebookSpec();
+    const previousToggle = config.featureToggles.panelRefreshOverride;
 
-    const scene = transformNotebookToScene(notebookResource());
-    const saveModel = transformNotebookSceneToSaveModel(scene);
+    try {
+      config.featureToggles.panelRefreshOverride = true;
 
-    expect(saveModel).toEqual(spec);
+      const scene = transformNotebookToScene(notebookResource());
+      const saveModel = transformNotebookSceneToSaveModel(scene);
+
+      expect(saveModel).toEqual(spec);
+    } finally {
+      config.featureToggles.panelRefreshOverride = previousToggle;
+    }
   });
+
+  it.each([true, false])(
+    'keeps the base refresh picker querying ordinary and library cells when the dashboard feature is %s',
+    async (featureEnabled) => {
+      const previousToggle = config.featureToggles.panelRefreshOverride;
+      config.featureToggles.panelRefreshOverride = featureEnabled;
+      const getLibraryPanel = jest.spyOn(libraryPanelsApi, 'getLibraryPanel').mockResolvedValue({
+        uid: 'lib-cpu-1',
+        name: 'CPU usage',
+        type: 'timeseries',
+        version: 1,
+        model: {
+          title: 'CPU usage',
+          type: 'timeseries',
+          refresh: '30s',
+          options: {},
+          fieldConfig: { defaults: {}, overrides: [] },
+          targets: [{ refId: 'A', datasource: { uid: 'gdev-prometheus', type: 'prometheus' } }],
+        },
+      });
+      runRequestMock.mockClear();
+      const scene = transformNotebookToScene(notebookResource());
+      const ordinaryPanel = scene.state.body.state.cells.find((cell) => cell.state.elementName === 'latency-panel')!
+        .state.body!;
+      const libraryPanel = scene.state.body.state.cells.find((cell) => cell.state.elementName === 'saved-cpu-panel')!
+        .state.body!;
+      const deactivate = activateFullSceneTree(scene);
+
+      try {
+        await waitFor(() => expect(getLibraryPanelBehavior(libraryPanel)?.state.isLoaded).toBe(true));
+        const ordinaryRunner = getQueryRunnerFor(ordinaryPanel);
+        const libraryRunner = getQueryRunnerFor(libraryPanel);
+
+        expect(ordinaryRunner).toBeInstanceOf(SceneQueryRunner);
+        expect(libraryRunner).toBeInstanceOf(SceneQueryRunner);
+        expect(libraryRunner).not.toBeInstanceOf(DashboardSceneQueryRunner);
+        expect(getPanelRefreshFor(ordinaryPanel)).toBeUndefined();
+        expect(getPanelRefreshFor(libraryPanel)).toBeUndefined();
+        expect(ordinaryPanel.state.$timeRange).not.toBeInstanceOf(PanelTimeRange);
+        expect(libraryPanel.state.$timeRange).not.toBeInstanceOf(PanelTimeRange);
+
+        ordinaryRunner?.setContainerWidth(500);
+        libraryRunner?.setContainerWidth(500);
+        await waitFor(() =>
+          expect(new Set(runRequestMock.mock.calls.map(([, request]) => request.panelId))).toEqual(new Set([1, 2]))
+        );
+        runRequestMock.mockClear();
+        scene.state.refreshPicker.onRefresh();
+
+        await waitFor(() => expect(runRequestMock).toHaveBeenCalledTimes(2));
+        expect(new Set(runRequestMock.mock.calls.map(([, request]) => request.panelId))).toEqual(new Set([1, 2]));
+      } finally {
+        deactivate();
+        config.featureToggles.panelRefreshOverride = previousToggle;
+        getLibraryPanel.mockRestore();
+      }
+    }
+  );
 
   // The save path borrows the dashboard's vizPanelToSchemaV2, which is only safe here because both
   // optional args are omitted: a dsReferencesMapping routes it through getElementIdentifierForVizPanel

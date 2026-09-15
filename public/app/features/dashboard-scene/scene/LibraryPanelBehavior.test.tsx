@@ -1,3 +1,4 @@
+import { waitFor } from '@testing-library/react';
 import { of } from 'rxjs';
 
 import { FieldType, LoadingState, type PanelData, getDefaultTimeRange, toDataFrame } from '@grafana/data';
@@ -10,22 +11,30 @@ import {
   SceneFlexLayout,
   sceneGraph,
   SceneGridLayout,
-  type SceneQueryRunner,
+  SceneQueryRunner,
+  SceneRefreshPicker,
+  SceneTimePicker,
+  SceneTimeRange,
   VizPanel,
 } from '@grafana/scenes';
 import { type LibraryPanel } from '@grafana/schema';
 import * as libpanels from 'app/features/library-panels/state/api';
+import { NotebookScene } from 'app/features/notebook/scene/NotebookScene';
+import { NotebookCellItem } from 'app/features/notebook/scene/layout-notebook/NotebookCellItem';
+import { NotebookLayoutManager } from 'app/features/notebook/scene/layout-notebook/NotebookLayoutManager';
 
 import { vizPanelToPanel } from '../serialization/transformSceneToSaveModel';
 import { NEW_LINK } from '../settings/links/utils';
 import { activateFullSceneTree } from '../utils/test-utils';
-import { getPanelIdForVizPanel } from '../utils/utils';
+import { getPanelIdForVizPanel, getQueryRunnerFor } from '../utils/utils';
 
 import { DashboardScene } from './DashboardScene';
+import { DashboardSceneQueryRunner } from './DashboardSceneQueryRunner';
 import { LibraryPanelBehavior } from './LibraryPanelBehavior';
 import { type VizPanelLinks } from './PanelLinks';
 import { DashboardGridItem } from './layout-default/DashboardGridItem';
 import { DefaultGridLayoutManager } from './layout-default/DefaultGridLayoutManager';
+import { getPanelRefreshFor } from './panel-refresh/PanelRefresh';
 import { PanelTimeRange } from './panel-timerange/PanelTimeRange';
 
 setPluginImportUtils({
@@ -235,6 +244,90 @@ describe('LibraryPanelBehavior', () => {
     expect(queryRunner?.state?.dataLayerFilter?.panelId).toBe(dashboardPanelId);
   });
 
+  describe('panel refresh root boundary', () => {
+    const previousToggle = config.featureToggles.panelRefreshOverride;
+
+    afterEach(() => {
+      config.featureToggles.panelRefreshOverride = previousToggle;
+    });
+
+    it('loads and replaces dashboard policies with one controller per panel', async () => {
+      config.featureToggles.panelRefreshOverride = true;
+
+      const first = await buildTestSceneWithLibraryPanel({ refresh: '30s' });
+      const second = await buildTestSceneWithLibraryPanel({ refresh: '30s' });
+      const firstPanel = first.gridItem.state.body;
+      const secondPanel = second.gridItem.state.body;
+      const firstController = getPanelRefreshFor(firstPanel);
+      const secondController = getPanelRefreshFor(secondPanel);
+
+      expect(firstController?.state.refresh).toBe('30s');
+      expect(secondController?.state.refresh).toBe('30s');
+      expect(firstController).not.toBe(secondController);
+      expect(firstPanel.state.$timeRange).toBeInstanceOf(PanelTimeRange);
+      expect(getQueryRunnerFor(firstPanel)).toBeInstanceOf(DashboardSceneQueryRunner);
+
+      first.behavior.setPanelFromLibPanel(buildLibraryPanel({ uid: '111', version: 2, refresh: 'off' }));
+
+      expect(getPanelRefreshFor(firstPanel)).toBe(firstController);
+      expect(firstController?.state.refresh).toBe('off');
+      expect(firstPanel.state.$timeRange).toBeInstanceOf(PanelTimeRange);
+
+      first.behavior.setPanelFromLibPanel(buildLibraryPanel({ uid: '111', version: 3 }));
+
+      expect(getPanelRefreshFor(firstPanel)).toBe(firstController);
+      expect(firstController?.state.refresh).toBeUndefined();
+      expect(firstPanel.state.$timeRange).toBeUndefined();
+    });
+
+    it('preserves a dashboard policy without installing interception when the feature is disabled', async () => {
+      config.featureToggles.panelRefreshOverride = false;
+
+      const { gridItem } = await buildTestSceneWithLibraryPanel({ refresh: '30s' });
+
+      expect(getPanelRefreshFor(gridItem.state.body)?.state.refresh).toBe('30s');
+      expect(gridItem.state.body.state.$timeRange).toBeUndefined();
+    });
+
+    it('keeps asynchronous Notebook loads and replacements root-neutral', async () => {
+      config.featureToggles.panelRefreshOverride = true;
+      const behavior = new LibraryPanelBehavior({ name: 'LibraryPanel A', uid: 'notebook-lib' });
+      const panel = new VizPanel({
+        key: 'panel-2',
+        pluginId: LibraryPanelBehavior.LOADING_VIZ_PANEL_PLUGIN_ID,
+        $behaviors: [behavior],
+      });
+      const notebook = new NotebookScene({
+        title: 'Notebook',
+        body: new NotebookLayoutManager({
+          cells: [new NotebookCellItem({ elementName: 'library', source: 'user', body: panel })],
+        }),
+        $timeRange: new SceneTimeRange({}),
+        timePicker: new SceneTimePicker({}),
+        refreshPicker: new SceneRefreshPicker({}),
+      });
+      jest
+        .spyOn(libpanels, 'getLibraryPanel')
+        .mockResolvedValue(buildLibraryPanel({ uid: 'notebook-lib', refresh: '30s' }));
+
+      const deactivate = activateFullSceneTree(notebook);
+      await waitFor(() => expect(behavior.state.isLoaded).toBe(true));
+
+      expect(getPanelRefreshFor(panel)).toBeUndefined();
+      expect(panel.state.$timeRange).toBeUndefined();
+      expect(getQueryRunnerFor(panel)).toBeInstanceOf(SceneQueryRunner);
+      expect(getQueryRunnerFor(panel)).not.toBeInstanceOf(DashboardSceneQueryRunner);
+
+      behavior.setPanelFromLibPanel(buildLibraryPanel({ uid: 'notebook-lib', version: 2, refresh: 'off' }));
+
+      expect(getPanelRefreshFor(panel)).toBeUndefined();
+      expect(panel.state.$timeRange).toBeUndefined();
+      expect(getQueryRunnerFor(panel)).toBeInstanceOf(SceneQueryRunner);
+      expect(getQueryRunnerFor(panel)).not.toBeInstanceOf(DashboardSceneQueryRunner);
+      deactivate();
+    });
+  });
+
   // Repeat carried on the library panel definition is migrated onto the enclosing DashboardGridItem.
   // Under dynamic dashboards repeat is owned by the panel instance instead, so the migration is
   // skipped — except for public and scripted dashboards, whose migrations still run in the frontend.
@@ -328,6 +421,7 @@ interface BuildTestSceneOptions {
   vizPanelTitle?: string;
   libPanelModelTitle?: string;
   timeFrom?: string;
+  refresh?: string;
   /** Set on the library panel model, to exercise the repeat migration onto the grid item. */
   repeat?: string;
   /** Merged into the dashboard meta, for the public/scripted migration exceptions. */
@@ -335,7 +429,14 @@ interface BuildTestSceneOptions {
 }
 
 async function buildTestSceneWithLibraryPanel(options: BuildTestSceneOptions = {}) {
-  const { vizPanelTitle = 'Panel A', libPanelModelTitle = 'LibraryPanel A title', timeFrom, repeat, meta } = options;
+  const {
+    vizPanelTitle = 'Panel A',
+    libPanelModelTitle = 'LibraryPanel A title',
+    timeFrom,
+    refresh,
+    repeat,
+    meta,
+  } = options;
 
   const behavior = new LibraryPanelBehavior({ name: 'LibraryPanel A', uid: '111' });
 
@@ -359,6 +460,7 @@ async function buildTestSceneWithLibraryPanel(options: BuildTestSceneOptions = {
       datasource: { uid: 'abcdef' },
       targets: [{ refId: 'A' }],
       ...(timeFrom ? { timeFrom } : {}),
+      ...(refresh ? { refresh } : {}),
       ...(repeat ? { repeat, repeatDirection: 'h', maxPerRow: 4 } : {}),
     },
     version: 1,
@@ -394,4 +496,29 @@ async function buildTestSceneWithLibraryPanel(options: BuildTestSceneOptions = {
   await new Promise((r) => setTimeout(r, 1));
 
   return { scene, gridItem, spy, behavior };
+}
+
+function buildLibraryPanel({
+  uid,
+  version = 1,
+  refresh,
+}: {
+  uid: string;
+  version?: number;
+  refresh?: string;
+}): LibraryPanel {
+  return {
+    name: 'LibraryPanel A',
+    uid,
+    type: 'table',
+    version,
+    model: {
+      title: 'LibraryPanel A title',
+      type: 'table',
+      options: { showHeader: true },
+      fieldConfig: { defaults: {}, overrides: [] },
+      targets: [{ refId: 'A' }],
+      ...(refresh ? { refresh } : {}),
+    },
+  };
 }
