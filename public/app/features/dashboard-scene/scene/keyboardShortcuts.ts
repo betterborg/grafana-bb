@@ -155,7 +155,7 @@ export function setupKeyboardShortcuts(scene: DashboardScene) {
   // Refresh
   keybindings.addBinding({
     key: 'd r',
-    onTrigger: () => sceneGraph.getTimeRange(scene).onRefresh(),
+    onTrigger: () => dashboardSceneGraph.refreshDashboard(scene),
   });
 
   keybindings.addBinding({
@@ -219,7 +219,7 @@ export function setupKeyboardShortcuts(scene: DashboardScene) {
         const nextSync = (currentSync + 1) % 3;
         cursorSync.setState({ sync: nextSync });
         appEvents.publish(new LegacyGraphHoverClearEvent());
-        sceneGraph.getTimeRange(scene).onRefresh();
+        dashboardSceneGraph.refreshDashboard(scene);
       }
     },
   });

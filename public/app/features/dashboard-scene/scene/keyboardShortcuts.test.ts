@@ -10,8 +10,10 @@ import { buildShareUrl } from '../sharing/ShareButton/utils';
 import { DashboardInteractions } from '../utils/interactions';
 import { findVizPanelByPathId } from '../utils/pathId';
 
+import { DashboardControls } from './DashboardControls';
 import { DashboardScene } from './DashboardScene';
 import { setupKeyboardShortcuts } from './keyboardShortcuts';
+import { getRefreshOrigin, RefreshOrigin } from './refresh-origin';
 
 // Mock dependencies
 jest.mock('app/core/app_events', () => ({
@@ -45,10 +47,11 @@ describe('setupKeyboardShortcuts', () => {
   let mockScene: DashboardScene;
   let mockKeybindingSet: jest.Mocked<KeybindingSet>;
   let mockCursorSync: behaviors.CursorSync;
+  let mockQueryController: behaviors.SceneQueryController;
 
   beforeEach(() => {
     jest.clearAllMocks();
-    mockOnRefresh.mockClear();
+    mockOnRefresh.mockReset();
     localStorageMock.clear();
 
     // Mock KeybindingSet
@@ -60,13 +63,15 @@ describe('setupKeyboardShortcuts', () => {
     // Create mock CursorSync behavior
     mockCursorSync = new behaviors.CursorSync({ sync: DashboardCursorSync.Off });
     jest.spyOn(mockCursorSync, 'setState');
+    mockQueryController = new behaviors.SceneQueryController();
 
     // Create mock DashboardScene
     mockScene = new DashboardScene({
       title: 'Test Dashboard',
       uid: 'test-uid',
       $timeRange: new SceneTimeRange({ from: 'now-6h', to: 'now' }),
-      $behaviors: [mockCursorSync],
+      $behaviors: [mockCursorSync, mockQueryController],
+      controls: new DashboardControls({}),
     });
 
     // Mock canEditDashboard
@@ -76,6 +81,28 @@ describe('setupKeyboardShortcuts', () => {
   afterEach(() => {
     jest.restoreAllMocks();
   });
+
+  function expectGlobalRefreshWhileRunning(handler: () => void) {
+    const refreshOrigins: Array<RefreshOrigin | undefined> = [];
+    const timeRangeRefresh = jest.spyOn(sceneGraph.getTimeRange(mockScene), 'onRefresh');
+    const pickerRefresh = jest.spyOn(mockScene.state.controls!.state.refreshPicker, 'onRefresh');
+    const cancelAll = jest.spyOn(mockQueryController, 'cancelAll');
+    const cancelProfile = jest.spyOn(mockQueryController, 'cancelProfile');
+    const cancelQuery = jest.fn();
+    const runningQuery = { type: 'data', origin: mockScene, cancel: cancelQuery };
+    mockQueryController.queryStarted(runningQuery);
+    timeRangeRefresh.mockImplementation(() => refreshOrigins.push(getRefreshOrigin()));
+
+    handler();
+
+    expect(timeRangeRefresh).toHaveBeenCalledTimes(1);
+    expect(refreshOrigins).toEqual([RefreshOrigin.Global]);
+    expect(pickerRefresh).not.toHaveBeenCalled();
+    expect(cancelAll).not.toHaveBeenCalled();
+    expect(cancelProfile).not.toHaveBeenCalled();
+    expect(cancelQuery).not.toHaveBeenCalled();
+    mockQueryController.queryCompleted(runningQuery);
+  }
 
   it('should setup keyboard shortcuts and return cleanup function', () => {
     const cleanup = setupKeyboardShortcuts(mockScene);
@@ -111,6 +138,10 @@ describe('setupKeyboardShortcuts', () => {
       expect(appEvents.publish).toHaveBeenCalledWith(expect.any(LegacyGraphHoverClearEvent));
       expect(sceneGraph.getTimeRange).toHaveBeenCalledWith(mockScene);
       expect(mockOnRefresh).toHaveBeenCalled();
+    });
+
+    it('refreshes globally without cancelling while queries are running', () => {
+      expectGlobalRefreshWhileRunning(modOHandler);
     });
 
     it('should toggle cursor sync from Crosshair to Tooltip', () => {
@@ -199,6 +230,12 @@ describe('setupKeyboardShortcuts', () => {
     it('should setup refresh shortcut (d r)', () => {
       const drBinding = mockKeybindingSet.addBinding.mock.calls.find((call) => call[0].key === 'd r');
       expect(drBinding).toBeDefined();
+    });
+
+    it('refreshes globally with d r without cancelling while queries are running', () => {
+      const drBinding = mockKeybindingSet.addBinding.mock.calls.find((call) => call[0].key === 'd r');
+
+      expectGlobalRefreshWhileRunning(drBinding![0].onTrigger);
     });
 
     it('should setup zoom out shortcut (ctrl+z)', () => {

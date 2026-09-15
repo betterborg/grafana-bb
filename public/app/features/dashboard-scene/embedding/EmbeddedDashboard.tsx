@@ -11,6 +11,7 @@ import { DashboardRoutes } from 'app/types/dashboard';
 
 import { getDashboardScenePageStateManager } from '../pages/DashboardScenePageStateManager';
 import { type DashboardScene } from '../scene/DashboardScene';
+import { dashboardSceneGraph } from '../utils/dashboardSceneGraph';
 import { useScenesFlickeringFix } from '../utils/utils';
 
 export function EmbeddedDashboard(props: EmbeddedDashboardProps) {
@@ -129,7 +130,7 @@ function useControlledRefresh(refreshToken: string | number | undefined, model: 
     lastToken.current = refreshToken;
 
     if (isActive && changed) {
-      sceneGraph.getTimeRange(model).onRefresh();
+      dashboardSceneGraph.refreshDashboard(model);
     }
   }, [refreshToken, model, isActive]);
 }
