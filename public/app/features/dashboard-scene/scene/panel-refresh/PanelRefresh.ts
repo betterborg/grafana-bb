@@ -92,7 +92,6 @@ export class PanelRefresh extends SceneObjectBase<PanelRefreshState> {
     this.runnerSubscription?.unsubscribe();
     this.runner = runner;
     this.panelTimeRange = panelTimeRange;
-    runner?.rebindToCurrentTimeRange();
     this.runnerSubscription = runner?.subscribeToState((next, previous) => {
       if (next.data !== previous.data) {
         this.onRunnerDataChanged();
@@ -242,11 +241,7 @@ export class PanelRefresh extends SceneObjectBase<PanelRefreshState> {
 }
 
 export function setPanelRefreshFor(panel: VizPanel, refresh?: string): PanelRefresh {
-  if (
-    config.featureToggles.panelRefreshOverride &&
-    getPanelRefreshPolicy(refresh) !== PanelRefreshPolicy.Inherit &&
-    !panel.state.$timeRange
-  ) {
+  if (config.featureToggles.panelRefreshOverride && !panel.state.$timeRange) {
     panel.setState({ $timeRange: new PanelTimeRange() });
   }
 
