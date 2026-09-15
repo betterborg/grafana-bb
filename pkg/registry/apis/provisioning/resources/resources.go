@@ -328,10 +328,14 @@ func (r *ResourcesManager) writeResourceFromParsed(ctx context.Context, path, re
 			return "", parsed.GVK, fmt.Errorf("read dashboard spec: %w", err)
 		}
 		if found {
-			if _, err := dashboards.ClampPanelRefreshIntervals(r.minRefreshInterval, spec); err != nil {
+			changed, err := dashboards.ClampPanelRefreshIntervals(r.minRefreshInterval, spec)
+			if err != nil {
 				return "", parsed.GVK, fmt.Errorf("clamp dashboard panel refresh intervals: %w", err)
 			}
-			if err := unstructured.SetNestedMap(parsed.Obj.Object, spec, "spec"); err != nil {
+			if changed > 0 {
+				err = unstructured.SetNestedMap(parsed.Obj.Object, spec, "spec")
+			}
+			if err != nil {
 				return "", parsed.GVK, fmt.Errorf("write dashboard spec: %w", err)
 			}
 		}
