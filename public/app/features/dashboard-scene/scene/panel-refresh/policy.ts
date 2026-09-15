@@ -1,4 +1,5 @@
 import { rangeUtil } from '@grafana/data';
+import { config } from '@grafana/runtime';
 
 export enum PanelRefreshPolicy {
   Inherit = 'inherit',
@@ -27,7 +28,12 @@ export function getPanelRefreshInterval(refresh?: string): number | undefined {
     return undefined;
   }
 
-  return rangeUtil.intervalToMs(refresh!);
+  const interval = rangeUtil.intervalToMs(refresh!);
+  if (!config.minRefreshInterval) {
+    return interval;
+  }
+
+  return Math.max(interval, rangeUtil.intervalToMs(config.minRefreshInterval));
 }
 
 export function getPanelRefreshValue(model: object): string | undefined {
