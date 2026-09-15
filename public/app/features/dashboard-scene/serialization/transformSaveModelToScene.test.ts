@@ -30,6 +30,7 @@ import { type DashboardDataDTO } from 'app/types/dashboard';
 
 import { getSceneCreationOptions } from '../pages/DashboardScenePageStateManager';
 import { DashboardDataLayerSet } from '../scene/DashboardDataLayerSet';
+import { DashboardRefreshPicker } from '../scene/DashboardRefreshPicker';
 import { LibraryPanelBehavior } from '../scene/LibraryPanelBehavior';
 import { DashboardGridItem } from '../scene/layout-default/DashboardGridItem';
 import { type DefaultGridLayoutManager } from '../scene/layout-default/DefaultGridLayoutManager';
@@ -122,7 +123,10 @@ describe('transformSaveModelToScene', () => {
       ).toBe(true);
       expect(dashboardControls).toBeDefined();
 
+      expect(dashboardControls.state.refreshPicker).toBeInstanceOf(DashboardRefreshPicker);
+      expect(dashboardControls.state.refreshPicker.state.refresh).toBe(dash.refresh);
       expect(dashboardControls.state.refreshPicker.state.intervals).toEqual(defaultTimePickerConfig.refresh_intervals);
+      expect(dashboardControls.state.refreshPicker.state.withText).toBe(true);
       expect(dashboardControls.state.hideTimeControls).toBe(true);
     });
 

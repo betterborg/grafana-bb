@@ -9,7 +9,6 @@ import {
   SceneGridRow,
   SceneTimeRange,
   SceneVariableSet,
-  SceneRefreshPicker,
   type SceneObject,
   VizPanelMenu,
   behaviors,
@@ -42,6 +41,7 @@ import { DashboardAnnotationsDataLayer } from '../scene/DashboardAnnotationsData
 import { DashboardControls } from '../scene/DashboardControls';
 import { DashboardDataLayerSet } from '../scene/DashboardDataLayerSet';
 import { registerDashboardMacro } from '../scene/DashboardMacro';
+import { DashboardRefreshPicker } from '../scene/DashboardRefreshPicker';
 import { DashboardReloadBehavior } from '../scene/DashboardReloadBehavior';
 import { DashboardScene } from '../scene/DashboardScene';
 import { LibraryPanelBehavior } from '../scene/LibraryPanelBehavior';
@@ -436,7 +436,7 @@ export function createDashboardSceneFromDashboardModel(
           quickRanges: oldModel.timepicker.quick_ranges,
           defaultQuickRanges: config.quickRanges,
         }),
-        refreshPicker: new SceneRefreshPicker({
+        refreshPicker: new DashboardRefreshPicker({
           refresh: oldModel.refresh,
           intervals: oldModel.timepicker.refresh_intervals,
           withText: true,

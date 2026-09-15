@@ -31,6 +31,7 @@ import { RowsLayoutManager } from '../scene/layout-rows/RowsLayoutManager';
 import { getDashboardSceneFor } from '../utils/utils';
 
 import { DashboardControls, type DashboardControlsState } from './DashboardControls';
+import { DashboardRefreshPicker } from './DashboardRefreshPicker';
 import { DashboardScene } from './DashboardScene';
 
 jest.mock('app/core/services/context_srv', () => ({
@@ -91,7 +92,7 @@ describe('DashboardControls', () => {
     it('should initialize with default values', () => {
       const scene = buildTestScene();
       expect(scene.state.timePicker).toBeDefined();
-      expect(scene.state.refreshPicker).toBeDefined();
+      expect(scene.state.refreshPicker).toBeInstanceOf(DashboardRefreshPicker);
     });
 
     describe('.hasControls()', () => {

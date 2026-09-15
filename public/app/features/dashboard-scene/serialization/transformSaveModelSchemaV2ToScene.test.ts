@@ -41,6 +41,7 @@ import { DashboardRoutes } from 'app/types/dashboard';
 
 import { type DashboardAnnotationsDataLayer } from '../scene/DashboardAnnotationsDataLayer';
 import { DashboardDataLayerSet } from '../scene/DashboardDataLayerSet';
+import { DashboardRefreshPicker } from '../scene/DashboardRefreshPicker';
 import { type AutoGridItem } from '../scene/layout-auto-grid/AutoGridItem';
 import { type AutoGridLayoutManager } from '../scene/layout-auto-grid/AutoGridLayoutManager';
 import { type DefaultGridLayoutManager } from '../scene/layout-default/DefaultGridLayoutManager';
@@ -128,8 +129,10 @@ describe('transformSaveModelSchemaV2ToScene', () => {
     const timeRange = sceneGraph.getTimeRange(scene)!;
 
     // Time settings
+    expect(refreshPicker).toBeInstanceOf(DashboardRefreshPicker);
     expect(refreshPicker.state.refresh).toEqual(time.autoRefresh);
     expect(refreshPicker.state.intervals).toEqual(time.autoRefreshIntervals);
+    expect(refreshPicker.state.withText).toBe(true);
     expect(timeRange?.state.fiscalYearStartMonth).toEqual(dash.timeSettings.fiscalYearStartMonth);
     expect(timeRange?.state.value.raw).toEqual({ from: dash.timeSettings.from, to: dash.timeSettings.to });
     expect(dashboardControls.state.hideTimeControls).toEqual(dash.timeSettings.hideTimepicker);
