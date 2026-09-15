@@ -10071,6 +10071,15 @@
       }
     }
   },
+  "grafana-scenes": {
+    "components": {
+      "scene-refresh-picker": {
+        "text-cancel": "Cancel",
+        "text-refresh": "Refresh",
+        "tooltip-cancel": "Cancel all queries"
+      }
+    }
+  },
   "grafana-ui": {
     "action-editor": {
       "button": {
@@ -14702,6 +14711,13 @@
     }
   },
   "query": {
+    "panel-refresh-picker": {
+      "custom-option": "Use custom interval: {{interval}}",
+      "default": "Default",
+      "description": "Manual refreshes and time range changes refresh every panel.",
+      "label": "Refresh",
+      "off": "Off"
+    },
     "query-editor-row-header": {
       "hidden": "Hidden",
       "query-name-div-title-edit-query-name": "Edit query name"
