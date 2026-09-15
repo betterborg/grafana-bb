@@ -1,13 +1,19 @@
-import { useCallback, useMemo } from 'react';
+import { useCallback, useMemo, useState, type KeyboardEvent } from 'react';
+import { components, type InputProps } from 'react-select';
 
 import { rangeUtil, type SelectableValue } from '@grafana/data';
 import { t } from '@grafana/i18n';
-import { defaultIntervals, Field, Select } from '@grafana/ui';
+import { defaultIntervals, InlineField, InlineFieldRow, Select } from '@grafana/ui';
 import { contextSrv } from 'app/core/services/context_srv';
 
 const defaultValue = '__default';
 const offValue = 'off';
-const panelRefreshIntervalPattern = /^\d+(?:ms|[Mwdhmsy])$/;
+const maxPanelRefreshIntervalMs = 2_147_483_647;
+const panelRefreshIntervalPattern = /^\d+(?:ms|[wdhms])$/;
+
+function RefreshPickerInput(props: InputProps) {
+  return <components.Input {...props} aria-describedby="panel-refresh-picker-description" />;
+}
 
 export interface PanelRefreshPickerProps {
   value?: string | null;
@@ -16,6 +22,7 @@ export interface PanelRefreshPickerProps {
 }
 
 export function PanelRefreshPicker({ value, intervals = defaultIntervals, onChange }: PanelRefreshPickerProps) {
+  const [inputValue, setInputValue] = useState('');
   const validIntervals = useMemo(() => contextSrv.getValidIntervals(intervals), [intervals]);
   const options = useMemo<Array<SelectableValue<string>>>(
     () => [
@@ -46,7 +53,12 @@ export function PanelRefreshPicker({ value, intervals = defaultIntervals, onChan
       }
 
       try {
-        return rangeUtil.intervalToMs(interval) > 0 && contextSrv.getValidIntervals([interval]).length === 1;
+        const intervalMs = rangeUtil.intervalToMs(interval);
+        return (
+          intervalMs > 0 &&
+          intervalMs <= maxPanelRefreshIntervalMs &&
+          contextSrv.getValidIntervals([interval]).length === 1
+        );
       } catch {
         return false;
       }
@@ -77,29 +89,59 @@ export function PanelRefreshPicker({ value, intervals = defaultIntervals, onChan
     [isValidCustomInterval, onChange]
   );
 
+  const onKeyDown = useCallback(
+    (event: KeyboardEvent<HTMLDivElement>) => {
+      if (event.key !== 'Enter' || !inputValue) {
+        return;
+      }
+
+      const matchingOption = options.find((option) => option.label?.toLowerCase() === inputValue.toLowerCase());
+      if (matchingOption) {
+        event.preventDefault();
+        onSelect(matchingOption);
+      } else if (isValidCustomInterval(inputValue)) {
+        event.preventDefault();
+        onCreateOption(inputValue);
+      }
+    },
+    [inputValue, isValidCustomInterval, onCreateOption, onSelect, options]
+  );
+
+  const description = t(
+    'query.panel-refresh-picker.description',
+    'Manual refreshes and time range changes refresh every panel.'
+  );
+
   return (
-    <Field
-      label={t('query.panel-refresh-picker.label', 'Refresh')}
-      description={t(
-        'query.panel-refresh-picker.description',
-        'Manual refreshes and time range changes refresh every panel.'
-      )}
-      noMargin
-    >
-      <Select
-        inputId="panel-refresh-picker"
-        aria-label={t('query.panel-refresh-picker.aria-label', 'Panel refresh interval')}
-        options={options}
-        value={selectedValue}
-        onChange={onSelect}
-        allowCustomValue
-        createOptionPosition="last"
-        isValidNewOption={isValidCustomInterval}
-        onCreateOption={onCreateOption}
-        formatCreateLabel={(input) =>
-          t('query.panel-refresh-picker.custom-option', 'Use custom interval: {{interval}}', { interval: input })
-        }
-      />
-    </Field>
+    <InlineFieldRow>
+      <InlineField
+        label={t('query.panel-refresh-picker.label', 'Refresh')}
+        tooltip={description}
+        htmlFor="panel-refresh-picker"
+      >
+        <div>
+          <Select
+            inputId="panel-refresh-picker"
+            components={{ Input: RefreshPickerInput }}
+            options={options}
+            value={selectedValue}
+            onChange={onSelect}
+            onInputChange={setInputValue}
+            onKeyDown={onKeyDown}
+            allowCustomValue
+            createOptionPosition="last"
+            isValidNewOption={isValidCustomInterval}
+            onCreateOption={onCreateOption}
+            width={25}
+            formatCreateLabel={(input) =>
+              t('query.panel-refresh-picker.custom-option', 'Use custom interval: {{interval}}', { interval: input })
+            }
+          />
+          <span id="panel-refresh-picker-description" className="sr-only">
+            {description}
+          </span>
+        </div>
+      </InlineField>
+    </InlineFieldRow>
   );
 }

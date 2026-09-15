@@ -14712,7 +14712,6 @@
   },
   "query": {
     "panel-refresh-picker": {
-      "aria-label": "Panel refresh interval",
       "custom-option": "Use custom interval: {{interval}}",
       "default": "Default",
       "description": "Manual refreshes and time range changes refresh every panel.",
