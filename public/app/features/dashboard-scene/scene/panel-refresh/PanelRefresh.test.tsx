@@ -337,6 +337,8 @@ describe('PanelRefresh', () => {
       expect(getPanelRefreshFor(panel)?.isActive).toBe(true);
 
       act(() => jest.advanceTimersByTime(400));
+      normalView.unmount();
+      expect(getPanelRefreshFor(panel)?.isActive).toBe(false);
       const soloView = render(
         <Providers>
           <SoloPanelContextProvider value={soloContext} singleMatch dashboard={dashboard}>
@@ -345,26 +347,27 @@ describe('PanelRefresh', () => {
         </Providers>
       );
       expect(getPanelRefreshFor(panel)?.isActive).toBe(true);
-      normalView.unmount();
       act(() => jest.advanceTimersByTime(300));
+      soloView.unmount();
+      expect(getPanelRefreshFor(panel)?.isActive).toBe(false);
       const editView = render(
         <Providers>
           <PanelEditPanelWrapper panel={panel} dashboard={dashboard} />
         </Providers>
       );
       expect(getPanelRefreshFor(panel)?.isActive).toBe(true);
-      soloView.unmount();
       act(() => jest.advanceTimersByTime(200));
+      editView.unmount();
+      expect(getPanelRefreshFor(panel)?.isActive).toBe(false);
       const returnedView = render(
         <Providers>
           <panel.Component model={panel} />
         </Providers>
       );
       expect(getPanelRefreshFor(panel)?.isActive).toBe(true);
-      editView.unmount();
 
       expect(getDataSourceMock).not.toHaveBeenCalled();
-      act(() => jest.advanceTimersByTime(100));
+      act(() => jest.advanceTimersByTime(1000));
       act(() => jest.advanceTimersByTime(1));
       if (expectedRuns === 1) {
         expect(runner.getPendingLifecycle()).toMatchObject({ id: 1, origin: RefreshOrigin.Panel });
@@ -374,6 +377,29 @@ describe('PanelRefresh', () => {
       returnedView.unmount();
     }
   );
+
+  it('restores inherited dashboard refresh after returning from panel edit', () => {
+    getDataSourceMock.mockReturnValue(new Promise<DataSourceApi>(() => {}));
+    const { dashboard, panel, runner } = buildDashboardPanel(undefined);
+    const Providers = getWrapper({});
+    const editView = render(
+      <Providers>
+        <PanelEditPanelWrapper panel={panel} dashboard={dashboard} />
+      </Providers>
+    );
+
+    editView.unmount();
+    const returnedView = render(
+      <Providers>
+        <panel.Component model={panel} />
+      </Providers>
+    );
+    act(() => dashboard.state.$timeRange!.onRefresh());
+    act(() => jest.advanceTimersByTime(1));
+
+    expect(runner.getPendingLifecycle()).toMatchObject({ id: 1, origin: RefreshOrigin.Dashboard });
+    returnedView.unmount();
+  });
 
   it('keeps interval queries running through the real viewport observer across successive deadlines', async () => {
     const results = new Subject<PanelData>();
@@ -446,7 +472,7 @@ function activateScheduler({ panel }: ReturnType<typeof buildPanel>): () => void
   return panel.activate();
 }
 
-function buildDashboardPanel(refresh: string) {
+function buildDashboardPanel(refresh?: string) {
   const timeRange = new SceneTimeRange({ from: 'now-1h', to: 'now' });
   const runner = new DashboardSceneQueryRunner({
     datasource: { uid: 'test-datasource' },
