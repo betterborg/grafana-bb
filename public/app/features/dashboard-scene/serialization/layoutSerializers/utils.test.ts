@@ -1,4 +1,4 @@
-import { VizPanel } from '@grafana/scenes';
+import { type SceneDataTransformer, SceneQueryRunner, VizPanel } from '@grafana/scenes';
 import {
   defaultDataQueryKind,
   defaultPanelSpec,
@@ -9,10 +9,17 @@ import {
 import { SHARED_DASHBOARD_QUERY } from 'app/plugins/datasource/dashboard/constants';
 import { MIXED_DATASOURCE_NAME } from 'app/plugins/datasource/mixed/MixedDataSource';
 
+import { DashboardSceneQueryRunner } from '../../scene/DashboardSceneQueryRunner';
 import { PanelTimeRange } from '../../scene/panel-timerange/PanelTimeRange';
 import { vizPanelToSchemaV2 } from '../transformSceneToSaveModelSchemaV2';
 
-import { buildVizPanel, ensureUniqueRefIds, getPanelDataSource, getRuntimePanelDataSource } from './utils';
+import {
+  buildVizPanel,
+  buildVizPanelState,
+  ensureUniqueRefIds,
+  getPanelDataSource,
+  getRuntimePanelDataSource,
+} from './utils';
 
 describe('getRuntimePanelDataSource', () => {
   it('should return uid and type when explicit datasource UID is provided', () => {
@@ -406,6 +413,16 @@ describe('buildVizPanel', () => {
     }
     return viz.state.$timeRange;
   }
+
+  it('uses dashboard runners only in the dashboard-owned builder', () => {
+    const panel = buildPanelWithQueryOptions({});
+    const dashboardProvider = buildVizPanel(panel).state.$data as SceneDataTransformer;
+    const neutralProvider = buildVizPanelState(panel).$data as SceneDataTransformer;
+
+    expect(dashboardProvider.state.$data).toBeInstanceOf(DashboardSceneQueryRunner);
+    expect(neutralProvider.state.$data).toBeInstanceOf(SceneQueryRunner);
+    expect(neutralProvider.state.$data).not.toBeInstanceOf(DashboardSceneQueryRunner);
+  });
 
   it.each([
     ['timeCompare', 'compareWith', '1d'],

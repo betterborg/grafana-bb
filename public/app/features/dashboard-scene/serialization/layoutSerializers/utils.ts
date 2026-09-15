@@ -6,6 +6,7 @@ import {
   type SceneDataQuery,
   SceneDataTransformer,
   type SceneObject,
+  type QueryRunnerState,
   SceneQueryRunner,
   VizPanel,
   VizPanelMenu,
@@ -30,6 +31,7 @@ import { MIXED_DATASOURCE_NAME } from 'app/plugins/datasource/mixed/MixedDataSou
 import { ConditionalRenderingGroup } from '../../conditional-rendering/group/ConditionalRenderingGroup';
 import { DashboardDatasourceBehaviour } from '../../scene/DashboardDatasourceBehaviour';
 import { type DashboardScene } from '../../scene/DashboardScene';
+import { DashboardSceneQueryRunner } from '../../scene/DashboardSceneQueryRunner';
 import { LibraryPanelBehavior } from '../../scene/LibraryPanelBehavior';
 import { VizPanelLinks, VizPanelLinksMenu } from '../../scene/PanelLinks';
 import { panelLinksBehavior, panelMenuBehavior } from '../../scene/PanelMenuBehavior';
@@ -55,6 +57,14 @@ import { normalizeTransformation } from '../transformationCompat';
  * context — all of which reach the root via getDashboardSceneFor and would throw elsewhere).
  */
 export function buildVizPanelState(panel: PanelKind, id?: number): VizPanelState {
+  return buildVizPanelStateWithRunner(panel, id, SceneQueryRunner);
+}
+
+function buildVizPanelStateWithRunner(
+  panel: PanelKind,
+  id: number | undefined,
+  QueryRunner: QueryRunnerConstructor
+): VizPanelState {
   const titleItems: SceneObject[] = [];
 
   titleItems.push(
@@ -99,7 +109,7 @@ export function buildVizPanelState(panel: PanelKind, id?: number): VizPanelState
     hoverHeader: !panel.spec.title && !timeOverrideShown,
     hoverHeaderOffset: 0,
     seriesLimit: config.panelSeriesLimit,
-    $data: createPanelDataProvider(panel),
+    $data: createPanelDataProvider(panel, QueryRunner),
     titleItems,
     $behaviors: [],
     _UNSAFE_clearPreviousFieldValues: true,
@@ -124,7 +134,7 @@ export function buildVizPanelState(panel: PanelKind, id?: number): VizPanelState
 }
 
 export function buildVizPanel(panel: PanelKind, id?: number): VizPanel {
-  const vizPanelState = buildVizPanelState(panel, id);
+  const vizPanelState = buildVizPanelStateWithRunner(panel, id, DashboardSceneQueryRunner);
 
   addDashboardPanelChrome(vizPanelState);
 
@@ -209,6 +219,7 @@ export function buildLibraryPanel(panel: LibraryPanelKind, id?: number): VizPane
 
 function createPanelDataProvider(
   panelKind: PanelKind,
+  QueryRunner: QueryRunnerConstructor,
   panelMetas: PanelPluginMetas = getPanelPluginMetasMapSync()
 ): SceneDataProvider | undefined {
   const panel = panelKind.spec;
@@ -234,7 +245,7 @@ function createPanelDataProvider(
   let dataProvider: SceneDataProvider | undefined = undefined;
   const datasource = getPanelDataSource(panelKind);
 
-  dataProvider = new SceneQueryRunner({
+  dataProvider = new QueryRunner({
     datasource,
     queries: queriesWithUniqueRefIds.map(panelQueryKindToSceneQuery),
     maxDataPoints: panel.data.spec.queryOptions.maxDataPoints ?? undefined,
@@ -261,6 +272,8 @@ function createPanelDataProvider(
     }),
   });
 }
+
+type QueryRunnerConstructor = new (initialState: QueryRunnerState) => SceneDataProvider;
 
 /**
  * Get panel-level datasource for a v2beta1 panel.
