@@ -997,6 +997,9 @@ func (dr *DashboardServiceImpl) SaveProvisionedDashboard(ctx context.Context, dt
 			dto.Dashboard.UID, "dashboardTitle", dto.Dashboard.Title, "minRefreshInterval", dr.cfg.MinRefreshInterval)
 		dto.Dashboard.Data.Set("refresh", dr.cfg.MinRefreshInterval)
 	}
+	if err := dr.clampPanelRefreshIntervals(dto, "provisioned"); err != nil {
+		return nil, err
+	}
 
 	ctx, ident := identity.WithServiceIdentity(ctx, dto.OrgID)
 	dto.User = ident
@@ -1072,6 +1075,9 @@ func (dr *DashboardServiceImpl) SaveDashboard(ctx context.Context, dto *dashboar
 			dr.cfg.MinRefreshInterval)
 		dto.Dashboard.Data.Set("refresh", dr.cfg.MinRefreshInterval)
 	}
+	if err := dr.clampPanelRefreshIntervals(dto, "imported"); err != nil {
+		return nil, err
+	}
 
 	cmd, err := dr.BuildSaveDashboardCommand(ctx, dto, !allowUiUpdate)
 	if err != nil {
@@ -1136,6 +1142,9 @@ func (dr *DashboardServiceImpl) ImportDashboard(ctx context.Context, dto *dashbo
 			"minRefreshInterval", dr.cfg.MinRefreshInterval)
 		dto.Dashboard.Data.Set("refresh", dr.cfg.MinRefreshInterval)
 	}
+	if err := dr.clampPanelRefreshIntervals(dto, "imported"); err != nil {
+		return nil, err
+	}
 
 	cmd, err := dr.BuildSaveDashboardCommand(ctx, dto, true)
 	if err != nil {
@@ -1153,6 +1162,18 @@ func (dr *DashboardServiceImpl) ImportDashboard(ctx context.Context, dto *dashbo
 	}
 
 	return dash, nil
+}
+
+func (dr *DashboardServiceImpl) clampPanelRefreshIntervals(dto *dashboards.SaveDashboardDTO, provenance string) error {
+	changed, err := dashboards.ClampPanelRefreshIntervals(dr.cfg.MinRefreshInterval, dto.Dashboard.Data.MustMap())
+	if err != nil {
+		return err
+	}
+	if changed > 0 {
+		dr.log.Warn("Changing panel refresh intervals for "+provenance+" dashboard to minimum refresh interval",
+			"dashboardUid", dto.Dashboard.UID, "correctedPanelCount", changed)
+	}
+	return nil
 }
 
 // UnprovisionDashboard removes info about dashboard being provisioned. Used after provisioning configs are changed
