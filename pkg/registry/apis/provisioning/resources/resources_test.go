@@ -82,7 +82,7 @@ func TestWriteResourceFileFromObject_RejectsPathTraversal(t *testing.T) {
 	tree := NewMockFolderTree(t)
 	tree.EXPECT().DirPath("evil", "").Return(Folder{ID: "evil", Title: "../../etc", Path: "../../etc"}, true)
 	folderMgr := NewFolderManager(repo, nil, tree, FolderKind)
-	mgr := NewResourcesManager(repo, folderMgr, nil, NewMockResourceClients(t))
+	mgr := NewResourcesManager(repo, folderMgr, nil, NewMockResourceClients(t), "")
 
 	obj := &unstructured.Unstructured{Object: map[string]any{
 		"apiVersion": "dashboard.grafana.app/v1beta1",
@@ -120,7 +120,7 @@ func TestWriteResourceFromParsed_FolderAnnotation(t *testing.T) {
 		// folders is nil on purpose: if the folder-annotation branch were taken it
 		// would dereference the nil FolderManager and panic, so a clean run proves
 		// the branch was skipped.
-		mgr := NewResourcesManager(repo, nil, mockParser, clients)
+		mgr := NewResourcesManager(repo, nil, mockParser, clients, "")
 		_, _, err := mgr.WriteResourceFromFile(context.Background(), "alerts/rule.json", "")
 
 		require.NoError(t, err)
@@ -150,12 +150,148 @@ func TestWriteResourceFromParsed_FolderAnnotation(t *testing.T) {
 		mockParser.On("Parse", mock.Anything, fileInfo).Return(parsed, nil)
 
 		folderMgr := NewFolderManager(repo, nil, NewEmptyFolderTree(), FolderKind)
-		mgr := NewResourcesManager(repo, folderMgr, mockParser, clients)
+		mgr := NewResourcesManager(repo, folderMgr, mockParser, clients, "")
 		_, _, err := mgr.WriteResourceFromFile(context.Background(), "rule.json", "")
 
 		require.NoError(t, err)
 		require.Equal(t, RootFolder(config), parsed.Meta.GetFolder(), "the resource should be annotated with the resolved folder")
 	})
+}
+
+func TestWriteResourceFromParsed_ClampsDashboardPanelRefreshIntervals(t *testing.T) {
+	tests := []struct {
+		name   string
+		gvk    schema.GroupVersionKind
+		gvr    schema.GroupVersionResource
+		spec   map[string]any
+		assert func(t *testing.T, spec map[string]any)
+	}{
+		{
+			name: "classic dashboard",
+			gvk:  DashboardKind,
+			gvr:  DashboardResource,
+			spec: map[string]any{
+				"refresh": "1s",
+				"panels": []any{
+					map[string]any{"id": float64(1)},
+					map[string]any{"id": float64(2), "refresh": ""},
+					map[string]any{"id": float64(3), "refresh": "off"},
+					map[string]any{"id": float64(4), "refresh": "5s"},
+					map[string]any{"id": float64(5), "refresh": "30s"},
+					map[string]any{"id": float64(6), "refresh": "1s"},
+					map[string]any{"id": float64(7), "refresh": "invalid"},
+				},
+			},
+			assert: func(t *testing.T, spec map[string]any) {
+				panels := spec["panels"].([]any)
+				require.NotContains(t, panels[0].(map[string]any), "refresh")
+				require.Equal(t, "", panels[1].(map[string]any)["refresh"])
+				require.Equal(t, "off", panels[2].(map[string]any)["refresh"])
+				require.Equal(t, "5s", panels[3].(map[string]any)["refresh"])
+				require.Equal(t, "30s", panels[4].(map[string]any)["refresh"])
+				require.Equal(t, "5s", panels[5].(map[string]any)["refresh"])
+				require.Equal(t, "5s", panels[6].(map[string]any)["refresh"])
+				require.Equal(t, "1s", spec["refresh"])
+			},
+		},
+		{
+			name: "stable v2 dashboard",
+			gvk: schema.GroupVersionKind{
+				Group:   DashboardKind.Group,
+				Version: DashboardResourceV2.Version,
+				Kind:    DashboardKind.Kind,
+			},
+			gvr: DashboardResourceV2,
+			spec: map[string]any{
+				"timeSettings": map[string]any{"autoRefresh": "1s"},
+				"elements": map[string]any{
+					"below-floor": repositoryV2PanelElementWithRefresh("1s"),
+					"at-floor":    repositoryV2PanelElementWithRefresh("5s"),
+					"off":         repositoryV2PanelElementWithRefresh("off"),
+				},
+			},
+			assert: func(t *testing.T, spec map[string]any) {
+				elements := spec["elements"].(map[string]any)
+				require.Equal(t, "5s", repositoryV2PanelElementRefresh(elements["below-floor"]))
+				require.Equal(t, "5s", repositoryV2PanelElementRefresh(elements["at-floor"]))
+				require.Equal(t, "off", repositoryV2PanelElementRefresh(elements["off"]))
+				require.Equal(t, "1s", spec["timeSettings"].(map[string]any)["autoRefresh"])
+			},
+		},
+		{
+			name: "non-dashboard resource",
+			gvk:  replaceTestGVK,
+			gvr:  replaceTestGVR,
+			spec: map[string]any{
+				"panels": []any{map[string]any{"refresh": "1s"}},
+			},
+			assert: func(t *testing.T, spec map[string]any) {
+				panel := spec["panels"].([]any)[0].(map[string]any)
+				require.Equal(t, "1s", panel["refresh"])
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			obj := &unstructured.Unstructured{Object: map[string]any{
+				"apiVersion": tt.gvk.GroupVersion().String(),
+				"kind":       tt.gvk.Kind,
+				"metadata":   map[string]any{"name": "resource-1"},
+				"spec":       tt.spec,
+			}}
+			meta, err := grafanautils.MetaAccessor(obj)
+			require.NoError(t, err)
+
+			var persisted *unstructured.Unstructured
+			client := &MockDynamicResourceInterface{}
+			client.On("Create", mock.Anything, mock.Anything, mock.Anything, mock.Anything).
+				Run(func(args mock.Arguments) {
+					persisted = args.Get(1).(*unstructured.Unstructured).DeepCopy()
+				}).
+				Return(obj.DeepCopy(), nil)
+
+			parsed := &ParsedResource{
+				Obj:            obj,
+				Meta:           meta,
+				GVK:            tt.gvk,
+				GVR:            tt.gvr,
+				Client:         client,
+				Repo:           testRepoInfo(),
+				DryRunResponse: &unstructured.Unstructured{},
+			}
+			clients := NewMockResourceClients(t)
+			clients.EXPECT().SupportedResources().Return(nil)
+			mgr := NewResourcesManager(repository.NewMockReaderWriter(t), nil, nil, clients, "5s")
+
+			_, _, err = mgr.writeResourceFromParsed(context.Background(), "resource.json", "", parsed)
+
+			require.NoError(t, err)
+			require.NotNil(t, persisted)
+			spec, found, err := unstructured.NestedMap(persisted.Object, "spec")
+			require.NoError(t, err)
+			require.True(t, found)
+			tt.assert(t, spec)
+		})
+	}
+}
+
+func repositoryV2PanelElementWithRefresh(refresh string) map[string]any {
+	return map[string]any{
+		"kind": "Panel",
+		"spec": map[string]any{
+			"data": map[string]any{
+				"spec": map[string]any{
+					"queryOptions": map[string]any{"refresh": refresh},
+				},
+			},
+		},
+	}
+}
+
+func repositoryV2PanelElementRefresh(element any) string {
+	refresh, _, _ := unstructured.NestedString(element.(map[string]any), "spec", "data", "spec", "queryOptions", "refresh")
+	return refresh
 }
 
 func TestReplaceResourceFromFile(t *testing.T) {
@@ -168,7 +304,7 @@ func TestReplaceResourceFromFile(t *testing.T) {
 		parsed, _ := newWritableParsedResource("same-uid")
 		mockParser.On("Parse", mock.Anything, fileInfo).Return(parsed, nil)
 
-		mgr := NewResourcesManager(repo, nil, mockParser, emptyClients(t))
+		mgr := NewResourcesManager(repo, nil, mockParser, emptyClients(t), "")
 		name, gvk, err := mgr.ReplaceResourceFromFile(context.Background(), "alerts/rule.json", "", "same-uid", replaceTestGVR)
 
 		require.NoError(t, err)
@@ -185,7 +321,7 @@ func TestReplaceResourceFromFile(t *testing.T) {
 		parsed, _ := newWritableParsedResource("new-uid")
 		mockParser.On("Parse", mock.Anything, fileInfo).Return(parsed, nil)
 
-		mgr := NewResourcesManager(repo, nil, mockParser, emptyClients(t))
+		mgr := NewResourcesManager(repo, nil, mockParser, emptyClients(t), "")
 		name, gvk, err := mgr.ReplaceResourceFromFile(context.Background(), "alerts/rule.json", "", "", replaceTestGVR)
 
 		require.NoError(t, err)
@@ -211,7 +347,7 @@ func TestReplaceResourceFromFile(t *testing.T) {
 		deleteClient.On("Get", mock.Anything, "old-uid", metav1.GetOptions{}, mock.Anything).Return(grafanaObj, nil)
 		deleteClient.On("Delete", mock.Anything, "old-uid", metav1.DeleteOptions{}, mock.Anything).Return(nil)
 
-		mgr := NewResourcesManager(repo, nil, mockParser, mockClients)
+		mgr := NewResourcesManager(repo, nil, mockParser, mockClients, "")
 		name, gvk, err := mgr.ReplaceResourceFromFile(context.Background(), "alerts/rule.json", "", "old-uid", replaceTestGVR)
 
 		require.NoError(t, err)
@@ -227,7 +363,7 @@ func TestReplaceResourceFromFile(t *testing.T) {
 		repo.On("Read", mock.Anything, "alerts/rule.json", "").
 			Return((*repository.FileInfo)(nil), fmt.Errorf("file not found"))
 
-		mgr := NewResourcesManager(repo, nil, mockParser, emptyClients(t))
+		mgr := NewResourcesManager(repo, nil, mockParser, emptyClients(t), "")
 		_, _, err := mgr.ReplaceResourceFromFile(context.Background(), "alerts/rule.json", "", "old-uid", replaceTestGVR)
 
 		require.Error(t, err)
@@ -253,7 +389,7 @@ func TestReplaceResourceFromFile(t *testing.T) {
 		deleteClient.On("Delete", mock.Anything, "old-uid", metav1.DeleteOptions{}, mock.Anything).
 			Return(fmt.Errorf("forbidden"))
 
-		mgr := NewResourcesManager(repo, nil, mockParser, mockClients)
+		mgr := NewResourcesManager(repo, nil, mockParser, mockClients, "")
 		name, gvk, err := mgr.ReplaceResourceFromFile(context.Background(), "alerts/rule.json", "", "old-uid", replaceTestGVR)
 
 		require.Error(t, err)
@@ -275,7 +411,7 @@ func TestReplaceResourceFromFile(t *testing.T) {
 		mockClients.On("ForResource", mock.Anything, replaceTestGVR).
 			Return(nil, schema.GroupVersionKind{}, fmt.Errorf("unknown resource"))
 
-		mgr := NewResourcesManager(repo, nil, mockParser, mockClients)
+		mgr := NewResourcesManager(repo, nil, mockParser, mockClients, "")
 		name, _, err := mgr.ReplaceResourceFromFile(context.Background(), "alerts/rule.json", "", "old-uid", replaceTestGVR)
 
 		require.Error(t, err)
@@ -299,7 +435,7 @@ func TestReplaceResourceFromFileByRef(t *testing.T) {
 		mockParser.On("Parse", mock.Anything, oldFileInfo).Return(oldParsed, nil)
 		mockParser.On("Parse", mock.Anything, newFileInfo).Return(newParsed, nil)
 
-		mgr := NewResourcesManager(repo, nil, mockParser, emptyClients(t))
+		mgr := NewResourcesManager(repo, nil, mockParser, emptyClients(t), "")
 		name, gvk, err := mgr.ReplaceResourceFromFileByRef(context.Background(), "alerts/rule.json", "new-ref", "old-ref")
 
 		require.NoError(t, err)
@@ -330,7 +466,7 @@ func TestReplaceResourceFromFileByRef(t *testing.T) {
 		deleteClient.On("Get", mock.Anything, "old-uid", metav1.GetOptions{}, mock.Anything).Return(grafanaObj, nil)
 		deleteClient.On("Delete", mock.Anything, "old-uid", metav1.DeleteOptions{}, mock.Anything).Return(nil)
 
-		mgr := NewResourcesManager(repo, nil, mockParser, mockClients)
+		mgr := NewResourcesManager(repo, nil, mockParser, mockClients, "")
 		name, gvk, err := mgr.ReplaceResourceFromFileByRef(context.Background(), "alerts/rule.json", "new-ref", "old-ref")
 
 		require.NoError(t, err)
@@ -346,7 +482,7 @@ func TestReplaceResourceFromFileByRef(t *testing.T) {
 		repo.On("Read", mock.Anything, "alerts/rule.json", "old-ref").
 			Return((*repository.FileInfo)(nil), fmt.Errorf("ref not found"))
 
-		mgr := NewResourcesManager(repo, nil, mockParser, emptyClients(t))
+		mgr := NewResourcesManager(repo, nil, mockParser, emptyClients(t), "")
 		_, _, err := mgr.ReplaceResourceFromFileByRef(context.Background(), "alerts/rule.json", "new-ref", "old-ref")
 
 		require.Error(t, err)
@@ -362,7 +498,7 @@ func TestReplaceResourceFromFileByRef(t *testing.T) {
 		mockParser.On("Parse", mock.Anything, oldFileInfo).
 			Return(nil, fmt.Errorf("invalid JSON"))
 
-		mgr := NewResourcesManager(repo, nil, mockParser, emptyClients(t))
+		mgr := NewResourcesManager(repo, nil, mockParser, emptyClients(t), "")
 		_, _, err := mgr.ReplaceResourceFromFileByRef(context.Background(), "alerts/rule.json", "new-ref", "old-ref")
 
 		require.Error(t, err)
@@ -381,7 +517,7 @@ func TestReplaceResourceFromFileByRef(t *testing.T) {
 		oldParsed := mustBuildParsedResource("old-uid", nil)
 		mockParser.On("Parse", mock.Anything, oldFileInfo).Return(oldParsed, nil)
 
-		mgr := NewResourcesManager(repo, nil, mockParser, emptyClients(t))
+		mgr := NewResourcesManager(repo, nil, mockParser, emptyClients(t), "")
 		_, _, err := mgr.ReplaceResourceFromFileByRef(context.Background(), "alerts/rule.json", "new-ref", "old-ref")
 
 		require.Error(t, err)
@@ -412,7 +548,7 @@ func TestReplaceResourceFromFileByRef(t *testing.T) {
 		deleteClient.On("Delete", mock.Anything, "old-uid", metav1.DeleteOptions{}, mock.Anything).
 			Return(fmt.Errorf("forbidden"))
 
-		mgr := NewResourcesManager(repo, nil, mockParser, mockClients)
+		mgr := NewResourcesManager(repo, nil, mockParser, mockClients, "")
 		name, gvk, err := mgr.ReplaceResourceFromFileByRef(context.Background(), "alerts/rule.json", "new-ref", "old-ref")
 
 		require.Error(t, err)
@@ -435,7 +571,7 @@ func TestReplaceResourceFromFileByRef(t *testing.T) {
 		mockParser.On("Parse", mock.Anything, oldFileInfo).Return(oldParsed, nil)
 		mockParser.On("Parse", mock.Anything, newFileInfo).Return(newParsed, nil)
 
-		mgr := NewResourcesManager(repo, nil, mockParser, emptyClients(t))
+		mgr := NewResourcesManager(repo, nil, mockParser, emptyClients(t), "")
 		name, _, err := mgr.ReplaceResourceFromFileByRef(context.Background(), "alerts/rule.json", "new-ref", "old-ref")
 
 		require.NoError(t, err)
@@ -459,7 +595,7 @@ func TestDeleteOldResource(t *testing.T) {
 		mockClient.On("Get", mock.Anything, "old-uid", metav1.GetOptions{}, mock.Anything).Return(grafanaObj, nil)
 		mockClient.On("Delete", mock.Anything, "old-uid", metav1.DeleteOptions{}, mock.Anything).Return(nil)
 
-		mgr := NewResourcesManager(repo, nil, nil, mockClients)
+		mgr := NewResourcesManager(repo, nil, nil, mockClients, "")
 		err := mgr.deleteOldResource(context.Background(), "alerts/rule.json", "old-uid", replaceTestGVR, "new-uid")
 
 		require.NoError(t, err)
@@ -474,7 +610,7 @@ func TestDeleteOldResource(t *testing.T) {
 		mockClients.On("ForResource", mock.Anything, replaceTestGVR).
 			Return(nil, schema.GroupVersionKind{}, fmt.Errorf("unknown resource"))
 
-		mgr := NewResourcesManager(repo, nil, nil, mockClients)
+		mgr := NewResourcesManager(repo, nil, nil, mockClients, "")
 		err := mgr.deleteOldResource(context.Background(), "alerts/rule.json", "old-uid", replaceTestGVR, "new-uid")
 
 		require.Error(t, err)
@@ -500,7 +636,7 @@ func TestDeleteOldResource(t *testing.T) {
 		mockClient.On("Get", mock.Anything, "old-uid", metav1.GetOptions{}, mock.Anything).Return(grafanaObj, nil)
 		mockClient.On("Delete", mock.Anything, "old-uid", metav1.DeleteOptions{}, mock.Anything).Return(nil)
 
-		mgr := NewResourcesManager(repo, nil, nil, mockClients)
+		mgr := NewResourcesManager(repo, nil, nil, mockClients, "")
 		err := mgr.deleteOldResource(context.Background(), "alerts/rule.json", "old-uid", replaceTestGVR, "new-uid")
 
 		require.NoError(t, err)
@@ -528,7 +664,7 @@ func TestDeleteOldResource(t *testing.T) {
 		}}
 		mockClient.On("Get", mock.Anything, "old-uid", metav1.GetOptions{}, mock.Anything).Return(unownedObj, nil)
 
-		mgr := NewResourcesManager(repo, nil, nil, mockClients)
+		mgr := NewResourcesManager(repo, nil, nil, mockClients, "")
 		err := mgr.deleteOldResource(context.Background(), "alerts/rule.json", "old-uid", replaceTestGVR, "new-uid")
 
 		require.Error(t, err)
@@ -549,7 +685,7 @@ func TestDeleteOldResource(t *testing.T) {
 		})
 		mockClient.On("Get", mock.Anything, "old-uid", metav1.GetOptions{}, mock.Anything).Return(grafanaObj, nil)
 
-		mgr := NewResourcesManager(repo, nil, nil, mockClients)
+		mgr := NewResourcesManager(repo, nil, nil, mockClients, "")
 		err := mgr.deleteOldResource(context.Background(), "alerts/rule.json", "old-uid", replaceTestGVR, "new-uid")
 
 		require.Error(t, err)
@@ -576,7 +712,7 @@ func TestDeleteOldResource(t *testing.T) {
 		mockClient.On("Get", mock.Anything, "old-uid", metav1.GetOptions{}, mock.Anything).Return(grafanaObj, nil)
 		mockClient.On("Delete", mock.Anything, "old-uid", metav1.DeleteOptions{}, mock.Anything).Return(nil)
 
-		mgr := NewResourcesManager(repo, nil, nil, mockClients)
+		mgr := NewResourcesManager(repo, nil, nil, mockClients, "")
 		err := mgr.deleteOldResource(context.Background(), "alerts/rule.json", "old-uid", replaceTestGVR, "new-uid")
 
 		require.NoError(t, err)
