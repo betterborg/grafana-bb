@@ -20,11 +20,17 @@ describe('PanelRefreshPicker', () => {
   });
 
   it('orders Default, Off, and configured intervals while filtering values below the floor', async () => {
-    render(<PanelRefreshPicker intervals={['5s', '10s', '1m']} onChange={jest.fn()} />);
+    render(<PanelRefreshPicker intervals={['5s', '10s', '1m', '24d', '25d']} onChange={jest.fn()} />);
 
     await userEvent.click(screen.getByRole('combobox', { name: 'Refresh' }));
 
-    expect(screen.getAllByRole('option').map((option) => option.textContent)).toEqual(['Default', 'Off', '10s', '1m']);
+    expect(screen.getAllByRole('option').map((option) => option.textContent)).toEqual([
+      'Default',
+      'Off',
+      '10s',
+      '1m',
+      '24d',
+    ]);
   });
 
   it('offers and accepts only valid custom durations at or above the floor', async () => {

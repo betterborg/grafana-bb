@@ -11,6 +11,15 @@ const offValue = 'off';
 const maxPanelRefreshIntervalMs = 2_147_483_647;
 const panelRefreshIntervalPattern = /^\d+(?:ms|[wdhms])$/;
 
+function isWithinMaxRefreshInterval(interval: string) {
+  try {
+    const intervalMs = rangeUtil.intervalToMs(interval);
+    return intervalMs > 0 && intervalMs <= maxPanelRefreshIntervalMs;
+  } catch {
+    return false;
+  }
+}
+
 function RefreshPickerInput(props: InputProps) {
   return <components.Input {...props} aria-describedby="panel-refresh-picker-description" />;
 }
@@ -23,7 +32,10 @@ export interface PanelRefreshPickerProps {
 
 export function PanelRefreshPicker({ value, intervals = defaultIntervals, onChange }: PanelRefreshPickerProps) {
   const [inputValue, setInputValue] = useState('');
-  const validIntervals = useMemo(() => contextSrv.getValidIntervals(intervals), [intervals]);
+  const validIntervals = useMemo(
+    () => contextSrv.getValidIntervals(intervals).filter(isWithinMaxRefreshInterval),
+    [intervals]
+  );
   const options = useMemo<Array<SelectableValue<string>>>(
     () => [
       {
@@ -52,16 +64,7 @@ export function PanelRefreshPicker({ value, intervals = defaultIntervals, onChan
         return false;
       }
 
-      try {
-        const intervalMs = rangeUtil.intervalToMs(interval);
-        return (
-          intervalMs > 0 &&
-          intervalMs <= maxPanelRefreshIntervalMs &&
-          contextSrv.getValidIntervals([interval]).length === 1
-        );
-      } catch {
-        return false;
-      }
+      return isWithinMaxRefreshInterval(interval) && contextSrv.getValidIntervals([interval]).length === 1;
     },
     [validIntervals]
   );
