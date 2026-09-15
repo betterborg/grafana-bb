@@ -77,13 +77,13 @@ describe('PanelRefresh', () => {
     deactivateOff();
   });
 
-  it('installs interception when a default panel transitions between inherit, interval, and off', () => {
+  it('updates interception when a default panel transitions between inherit, interval, and off', () => {
     getDataSourceMock.mockReturnValue(new Promise<DataSourceApi>(() => {}));
     const scheduler = buildPanel();
     const { panel, runner, timeRange } = scheduler;
     const deactivate = activateScheduler(scheduler);
 
-    expect(panel.state.$timeRange).toBeUndefined();
+    expect(panel.state.$timeRange).toBeInstanceOf(PanelTimeRange);
 
     setPanelRefreshFor(panel, 'off');
     expect(panel.state.$timeRange).toBeInstanceOf(PanelTimeRange);
