@@ -321,6 +321,24 @@ func TestParseLibraryPanelRow(t *testing.T) {
 		require.Equal(t, "Database Name", item.Spec.Title)
 	})
 
+	t.Run("refresh is placed in typed spec and removed from missing status", func(t *testing.T) {
+		p := basePanel
+		p.Name = "Test Panel"
+		model := map[string]interface{}{
+			"title":   "Test Panel",
+			"type":    "graph",
+			"refresh": "30s",
+		}
+		modelBytes, err := json.Marshal(model)
+		require.NoError(t, err)
+		p.Model = modelBytes
+
+		item, err := parseLibraryPanelRow(p)
+		require.NoError(t, err)
+		require.Equal(t, "30s", item.Spec.Refresh)
+		require.NotContains(t, item.Status.Missing.Object, "refresh")
+	})
+
 	t.Run("handles NULL created_by and updated_by fields", func(t *testing.T) {
 		p := basePanel
 		p.Name = "Test Panel"

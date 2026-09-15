@@ -3,6 +3,7 @@ package libraryelements
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 
 	"github.com/grafana/grafana/pkg/api/routing"
 	"github.com/grafana/grafana/pkg/apimachinery/identity"
@@ -102,4 +103,32 @@ func (l *LibraryElementService) addUidToLibraryPanel(model []byte, newUid string
 	}
 
 	return updatedModel, nil
+}
+
+func (l *LibraryElementService) validatePanelRefresh(modelJSON []byte) error {
+	if len(modelJSON) == 0 {
+		return nil
+	}
+
+	var panel map[string]any
+	if err := json.Unmarshal(modelJSON, &panel); err != nil {
+		return err
+	}
+	refresh, exists := panel["refresh"]
+	if !exists || refresh == nil {
+		return nil
+	}
+	refreshValue, ok := refresh.(string)
+	if !ok {
+		return fmt.Errorf("%w: panel refresh must be a string, got %T", model.ErrLibraryElementPanelRefreshIntervalInvalid, refresh)
+	}
+
+	minRefreshInterval := ""
+	if l.Cfg != nil {
+		minRefreshInterval = l.Cfg.MinRefreshInterval
+	}
+	if err := dashboards.ValidatePanelRefreshInterval(minRefreshInterval, refreshValue); err != nil {
+		return fmt.Errorf("%w: %v", model.ErrLibraryElementPanelRefreshIntervalInvalid, err)
+	}
+	return nil
 }

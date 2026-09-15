@@ -2,6 +2,7 @@ package libraryelements
 
 import (
 	"context"
+	"encoding/json"
 	"net/http/httptest"
 	"testing"
 	"time"
@@ -94,6 +95,7 @@ func TestUnstructuredToLegacyLibraryPanelDTO(t *testing.T) {
 					"uid":  "test-datasource",
 				},
 				"transparent": true,
+				"refresh":     "off",
 				"links": []interface{}{
 					map[string]interface{}{
 						"title": "Test Link",
@@ -165,11 +167,56 @@ func TestUnstructuredToLegacyLibraryPanelDTO(t *testing.T) {
 		"links": [{ "title": "Test Link", "url": "https://example.com" }],
 		"options": { "content": "Test content" },
 		"pluginVersion": "1.0.0",
+		"refresh": "off",
 		"targets": [{ "refId": "A", "expr": "test_query" }],
 		"title": "Test Panel Title",
 		"transparent": true,
 		"type": "text"
 	}`, string(result.Model))
+	cloneObject := func(t *testing.T) *unstructured.Unstructured {
+		t.Helper()
+		encoded, err := json.Marshal(unstructuredObj)
+		require.NoError(t, err)
+		cloned := &unstructured.Unstructured{}
+		require.NoError(t, json.Unmarshal(encoded, cloned))
+		return cloned
+	}
+
+	t.Run("uses older missing refresh only when typed refresh is absent", func(t *testing.T) {
+		fallbackObj := cloneObject(t)
+		delete(fallbackObj.Object["spec"].(map[string]any), "refresh")
+		fallbackObj.Object["status"] = map[string]any{"missing": map[string]any{"refresh": "30s", "pluginField": "ignored"}}
+
+		fallbackResult, err := handler.unstructuredToLegacyLibraryPanelDTO(reqContext, *fallbackObj)
+		require.NoError(t, err)
+		var fallbackModel map[string]any
+		require.NoError(t, json.Unmarshal(fallbackResult.Model, &fallbackModel))
+		require.Equal(t, "30s", fallbackModel["refresh"])
+		require.NotContains(t, fallbackModel, "pluginField")
+	})
+
+	t.Run("typed refresh takes precedence over older missing refresh", func(t *testing.T) {
+		precedenceObj := cloneObject(t)
+		precedenceObj.Object["status"] = map[string]any{"missing": map[string]any{"refresh": "30s"}}
+
+		precedenceResult, err := handler.unstructuredToLegacyLibraryPanelDTO(reqContext, *precedenceObj)
+		require.NoError(t, err)
+		var precedenceModel map[string]any
+		require.NoError(t, json.Unmarshal(precedenceResult.Model, &precedenceModel))
+		require.Equal(t, "off", precedenceModel["refresh"])
+	})
+
+	t.Run("ignores non-string older missing refresh", func(t *testing.T) {
+		invalidFallbackObj := cloneObject(t)
+		delete(invalidFallbackObj.Object["spec"].(map[string]any), "refresh")
+		invalidFallbackObj.Object["status"] = map[string]any{"missing": map[string]any{"refresh": 30}}
+
+		invalidFallbackResult, err := handler.unstructuredToLegacyLibraryPanelDTO(reqContext, *invalidFallbackObj)
+		require.NoError(t, err)
+		var invalidFallbackModel map[string]any
+		require.NoError(t, json.Unmarshal(invalidFallbackResult.Model, &invalidFallbackModel))
+		require.NotContains(t, invalidFallbackModel, "refresh")
+	})
 
 	dashboardsSvc.AssertExpectations(t)
 }

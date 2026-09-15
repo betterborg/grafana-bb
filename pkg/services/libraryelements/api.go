@@ -427,6 +427,9 @@ func (l *LibraryElementService) toLibraryElementError(err error, message string)
 	if errors.Is(err, model.ErrLibraryElementInsufficientPermissions) {
 		return response.Error(http.StatusForbidden, err.Error(), err)
 	}
+	if errors.Is(err, model.ErrLibraryElementPanelRefreshIntervalInvalid) {
+		return response.Error(http.StatusBadRequest, model.ErrLibraryElementPanelRefreshIntervalInvalid.Error(), err)
+	}
 
 	// Log errors that cause internal server error status code.
 	l.log.Error(message, "error", err)
@@ -647,6 +650,11 @@ func (lk8s *libraryElementsK8sHandler) unstructuredToLegacyLibraryPanelDTO(c *co
 	legacyModel["pluginVersion"] = libraryPanelSpec.PluginVersion
 	legacyModel["type"] = libraryPanelSpec.Type
 	legacyModel["title"] = libraryPanelSpec.PanelTitle // this is the title of the panel when displayed in the dashboard
+	if _, exists := spec["refresh"]; exists {
+		legacyModel["refresh"] = libraryPanelSpec.Refresh
+	} else if refresh, found, _ := unstructured.NestedString(item.Object, "status", "missing", "refresh"); found {
+		legacyModel["refresh"] = refresh
+	}
 	legacyModel["libraryPanel"] = map[string]string{
 		"name": libraryPanelSpec.Title, // this is the title of the actual library panel, when displayed in the library panel list
 		"uid":  item.GetName(),

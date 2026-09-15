@@ -8,16 +8,90 @@ import (
 
 	"github.com/stretchr/testify/require"
 	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 
 	dashboardV0 "github.com/grafana/grafana/apps/dashboard/pkg/apis/dashboard/v0alpha1"
 	"github.com/grafana/grafana/pkg/apimachinery/utils"
+	"github.com/grafana/grafana/pkg/services/featuremgmt"
 	"github.com/grafana/grafana/pkg/services/folder"
 	"github.com/grafana/grafana/pkg/services/org"
 	"github.com/grafana/grafana/pkg/tests/apis"
 	"github.com/grafana/grafana/pkg/tests/testinfra"
 	"github.com/grafana/grafana/pkg/util/testutil"
 )
+
+func TestIntegrationLibraryPanelRefreshValidation(t *testing.T) {
+	testutil.SkipIntegrationTestInShortMode(t)
+
+	helper := apis.NewK8sTestHelper(t, testinfra.GrafanaOpts{
+		DisableAnonymous:      true,
+		DisableFeatureToggles: []string{featuremgmt.FlagPanelRefreshOverride},
+		EnableFeatureToggles: []string{
+			featuremgmt.FlagLibraryelementsKubernetesLibraryPanels,
+			featuremgmt.FlagGrafanaAPIServerWithExperimentalAPIs,
+		},
+	})
+	t.Cleanup(helper.Shutdown)
+	ctx := createTestContext(t, helper, helper.Org1)
+	client := getResourceClient(t, helper, ctx.AdminUser, getLibraryElementGVR())
+
+	tests := []struct {
+		name      string
+		refresh   *string
+		shouldErr bool
+	}{
+		{name: "missing"},
+		{name: "empty", refresh: new("")},
+		{name: "off", refresh: new("off")},
+		{name: "at floor", refresh: new("10s")},
+		{name: "above floor", refresh: new("30s")},
+		{name: "below floor", refresh: new("5s"), shouldErr: true},
+		{name: "malformed", refresh: new("sometimes"), shouldErr: true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			created, err := client.Resource.Create(context.Background(), libraryPanelRefreshObject(tt.refresh), v1.CreateOptions{})
+			if tt.shouldErr {
+				require.Error(t, err)
+				baseline, err := client.Resource.Create(context.Background(), libraryPanelRefreshObject(nil), v1.CreateOptions{})
+				require.NoError(t, err)
+				baseline.Object["spec"].(map[string]any)["refresh"] = *tt.refresh
+				_, err = client.Resource.Update(context.Background(), baseline, v1.UpdateOptions{})
+				require.Error(t, err)
+				require.NoError(t, client.Resource.Delete(context.Background(), baseline.GetName(), v1.DeleteOptions{}))
+				return
+			}
+
+			require.NoError(t, err)
+			_, err = client.Resource.Update(context.Background(), created, v1.UpdateOptions{})
+			require.NoError(t, err)
+			require.NoError(t, client.Resource.Delete(context.Background(), created.GetName(), v1.DeleteOptions{}))
+		})
+	}
+}
+
+func libraryPanelRefreshObject(refresh *string) *unstructured.Unstructured {
+	spec := map[string]any{
+		"type":        "timeseries",
+		"title":       "Refresh validation",
+		"options":     map[string]any{},
+		"fieldConfig": map[string]any{},
+	}
+	if refresh != nil {
+		spec["refresh"] = *refresh
+	}
+	return &unstructured.Unstructured{Object: map[string]any{
+		"apiVersion": dashboardV0.APIVERSION,
+		"kind":       "LibraryPanel",
+		"metadata": map[string]any{
+			"generateName": "lp-refresh-",
+			"annotations":  map[string]any{"grafana.app/grant-permissions": "default"},
+		},
+		"spec": spec,
+	}}
+}
 
 // this tests the /api path still, but behind the scenes is using search to get the library connections
 // as in modes 4+, the connections are found via searching dashboards for the reference of the library panel

@@ -113,6 +113,11 @@ func (l *LibraryElementService) CreateElement(c context.Context, signedInUser id
 	if err := l.requireSupportedElementKind(cmd.Kind); err != nil {
 		return model.LibraryElementDTO{}, err
 	}
+	if cmd.Kind == int64(model.PanelElement) {
+		if err := l.validatePanelRefresh(cmd.Model); err != nil {
+			return model.LibraryElementDTO{}, err
+		}
+	}
 	createUID := cmd.UID
 	if len(createUID) == 0 {
 		createUID = util.GenerateShortUID()
@@ -609,6 +614,11 @@ func (l *LibraryElementService) PatchLibraryElement(c context.Context, signedInU
 	var dto model.LibraryElementDTO
 	if err := l.requireSupportedElementKind(cmd.Kind); err != nil {
 		return model.LibraryElementDTO{}, err
+	}
+	if cmd.Kind == int64(model.PanelElement) {
+		if err := l.validatePanelRefresh(cmd.Model); err != nil {
+			return model.LibraryElementDTO{}, err
+		}
 	}
 
 	if cmd.FolderUID != nil {
