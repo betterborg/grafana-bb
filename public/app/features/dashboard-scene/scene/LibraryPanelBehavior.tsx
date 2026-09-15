@@ -112,7 +112,7 @@ export class LibraryPanelBehavior extends SceneObjectBase<LibraryPanelBehaviorSt
 
     vizPanel.setState(vizPanelState);
     if (isDashboardRoot) {
-      setPanelRefreshFor(vizPanel, panelRefresh);
+      setPanelRefreshFor(vizPanel, panelRefresh, false);
     }
     vizPanel.changePluginType(libPanelModel.type, vizPanelState.options, vizPanelState.fieldConfig);
 
