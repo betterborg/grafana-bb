@@ -10,6 +10,8 @@ import { RefreshOrigin, runWithRefreshOrigin } from '../refresh-origin';
 
 import { getPanelRefreshInterval, getPanelRefreshPolicy, PanelRefreshPolicy } from './policy';
 
+const MAX_TIMER_DELAY = 2_147_483_647;
+
 export interface PanelRefreshState extends SceneObjectState {
   refresh?: string;
   lastUpdated?: number;
@@ -50,6 +52,7 @@ export class PanelRefresh extends SceneObjectBase<PanelRefreshState> {
     }
 
     this.bindPanelState(panel);
+    this.configurePolicy();
 
     this._subs.add(
       this.subscribeToState((next, previous) => {
@@ -62,6 +65,7 @@ export class PanelRefresh extends SceneObjectBase<PanelRefreshState> {
       panel.subscribeToState((next, previous) => {
         if (next.$data !== previous.$data || next.$timeRange !== previous.$timeRange) {
           this.bindPanelState(panel);
+          this.configurePolicy();
         }
       })
     );
@@ -98,7 +102,6 @@ export class PanelRefresh extends SceneObjectBase<PanelRefreshState> {
       }
     });
     this.updateFreshness();
-    this.configurePolicy();
   }
 
   private configurePolicy(): void {
@@ -202,10 +205,13 @@ export class PanelRefresh extends SceneObjectBase<PanelRefreshState> {
     }
 
     this.clearDeadline();
-    this.timeout = setTimeout(() => {
-      this.timeout = undefined;
-      this.tryPanelRefresh();
-    }, interval);
+    this.timeout = setTimeout(
+      () => {
+        this.timeout = undefined;
+        this.tryPanelRefresh();
+      },
+      Math.min(interval, MAX_TIMER_DELAY)
+    );
   }
 
   private clearDeadline(): void {

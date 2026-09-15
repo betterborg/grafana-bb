@@ -57,6 +57,44 @@ describe('PanelRefresh', () => {
     expect(getPanelRefreshPolicy('invalid')).toBe(PanelRefreshPolicy.Inherit);
   });
 
+  it('enforces the configured minimum refresh interval at runtime', () => {
+    const previousMinimum = config.minRefreshInterval;
+    config.minRefreshInterval = '30s';
+
+    expect(getPanelRefreshInterval('1s')).toBe(30_000);
+    expect(getPanelRefreshInterval('1m')).toBe(60_000);
+
+    config.minRefreshInterval = previousMinimum;
+  });
+
+  it.each([
+    ['24d', 2_073_600_000],
+    ['25d', 2_147_483_647],
+  ])('keeps the %s scheduler delay within the JavaScript timer limit', (refresh, expectedDelay) => {
+    const setTimeoutSpy = jest.spyOn(global, 'setTimeout');
+    const scheduler = buildPanel(refresh);
+    const deactivate = activateScheduler(scheduler);
+
+    expect(setTimeoutSpy).toHaveBeenLastCalledWith(expect.any(Function), expectedDelay);
+    deactivate();
+  });
+
+  it('re-arms an interval when the panel scheduler activates with existing bindings', () => {
+    getDataSourceMock.mockReturnValue(new Promise<DataSourceApi>(() => {}));
+    const scheduler = buildPanel();
+    const panelRefresh = getPanelRefreshFor(scheduler.panel)!;
+
+    // Editor rebuilds can bind the replacement panel before its behavior is activated.
+    Reflect.set(panelRefresh, 'runner', scheduler.runner);
+    Reflect.set(panelRefresh, 'panelTimeRange', scheduler.panelTimeRange);
+    panelRefresh.setState({ refresh: '1s' });
+    const deactivate = activateScheduler(scheduler);
+
+    jest.advanceTimersByTime(1001);
+    expect(scheduler.runner.getPendingLifecycle()).toMatchObject({ id: 1, origin: RefreshOrigin.Panel });
+    deactivate();
+  });
+
   it('installs no timeout or viewport bypass for inherited and off policies', () => {
     const inherited = buildPanel();
     const inheritedBypass = jest.spyOn(inherited.runner, 'setPanelRefreshViewportBypass');
