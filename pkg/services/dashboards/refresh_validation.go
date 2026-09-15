@@ -76,7 +76,7 @@ func ClampPanelRefreshIntervals(minRefreshInterval string, spec map[string]any) 
 	if minRefreshInterval == "" {
 		return 0, nil
 	}
-	if _, err := gtime.ParseDuration(minRefreshInterval); err != nil {
+	if err := ValidatePanelRefreshInterval(minRefreshInterval, minRefreshInterval); err != nil {
 		return 0, fmt.Errorf("parsing min refresh interval %q failed: %w", minRefreshInterval, err)
 	}
 
