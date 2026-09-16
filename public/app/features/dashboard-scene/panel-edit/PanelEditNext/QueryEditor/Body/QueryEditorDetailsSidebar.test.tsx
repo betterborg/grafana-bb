@@ -8,6 +8,12 @@ import { renderWithQueryEditorProvider, mockOptions, mockActions } from '../test
 
 import { QueryEditorDetailsSidebar } from './QueryEditorDetailsSidebar';
 
+const mockGetCurrentDashboard = jest.fn();
+
+jest.mock('app/features/dashboard/services/DashboardSrv', () => ({
+  getDashboardSrv: () => ({ getCurrent: mockGetCurrentDashboard }),
+}));
+
 describe('QueryEditorDetailsSidebar', () => {
   const mockCloseSidebar = jest.fn();
   const originalPanelRefreshOverride = config.featureToggles.panelRefreshOverride;
@@ -24,6 +30,7 @@ describe('QueryEditorDetailsSidebar', () => {
 
   beforeEach(() => {
     jest.clearAllMocks();
+    mockGetCurrentDashboard.mockReset();
     config.featureToggles.panelRefreshOverride = true;
   });
 
@@ -70,6 +77,26 @@ describe('QueryEditorDetailsSidebar', () => {
   });
 
   describe('refresh picker', () => {
+    it('uses the dashboard refresh intervals', async () => {
+      mockGetCurrentDashboard.mockReturnValue({ timepicker: { refresh_intervals: ['7s', '13s', '1m'] } });
+      const { user } = renderSidebar();
+
+      await user.click(screen.getByRole('combobox', { name: 'Panel refresh interval' }));
+
+      expect(screen.getByRole('option', { name: '7s' })).toBeInTheDocument();
+      expect(screen.getByRole('option', { name: '13s' })).toBeInTheDocument();
+      expect(screen.queryByRole('option', { name: '5s' })).not.toBeInTheDocument();
+    });
+
+    it('falls back to default refresh intervals when the dashboard value is not an array', async () => {
+      mockGetCurrentDashboard.mockReturnValue({ timepicker: { refresh_intervals: null } });
+      const { user } = renderSidebar();
+
+      await user.click(screen.getByRole('combobox', { name: 'Panel refresh interval' }));
+
+      expect(screen.getByRole('option', { name: '5s' })).toBeInTheDocument();
+    });
+
     it('should call onQueryOptionsChange with an updated refresh policy', async () => {
       const { user } = renderSidebar();
 
