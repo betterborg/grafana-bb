@@ -13,6 +13,7 @@ import { CustomDashboardTemplateInteractions } from '../analytics/dashboard-temp
 import { type DashboardScene } from '../scene/DashboardScene';
 import { AutoGridItem } from '../scene/layout-auto-grid/AutoGridItem';
 import { DashboardGridItem } from '../scene/layout-default/DashboardGridItem';
+import { type DashboardTrackingInfo, type PanelRefreshTrackingInfo } from '../serialization/DashboardSceneSerializer';
 
 import { DashboardInteractions } from './interactions';
 
@@ -68,6 +69,7 @@ export async function trackDashboardSceneCreatedOrSaved(
       acc[key] = value;
       return acc;
     }, {});
+  const panelRefresh = getPanelRefreshTrackingProperties(sceneDashboardTrackingInfo);
 
   const dashboardLibraryProperties = await getDashboardLibraryTrackingProperties(dashboard);
 
@@ -84,6 +86,7 @@ export async function trackDashboardSceneCreatedOrSaved(
           customGridLayoutCount: dynamicDashboardsTrackingInformation.customGridLayoutCount,
           panelsByDatasourceType: dynamicDashboardsTrackingInformation.panelsByDatasourceType,
           ...variables,
+          ...panelRefresh,
           ...dashboardLibraryProperties,
         }
       : {
@@ -91,6 +94,7 @@ export async function trackDashboardSceneCreatedOrSaved(
           numPanels: sceneDashboardTrackingInfo?.panels_count || 0,
           numRows: sceneDashboardTrackingInfo?.rowCount || 0,
           ...variables,
+          ...panelRefresh,
           ...dashboardLibraryProperties,
         }),
   });
@@ -106,6 +110,28 @@ export async function trackDashboardSceneCreatedOrSaved(
       });
     }
   }
+}
+
+function getPanelRefreshTrackingProperties(
+  trackingInfo: DashboardTrackingInfo | undefined
+): Partial<PanelRefreshTrackingInfo> {
+  if (
+    trackingInfo?.panel_refresh_explicit_count === undefined ||
+    trackingInfo.panel_refresh_off_count === undefined ||
+    trackingInfo.panel_refresh_faster_count === undefined ||
+    trackingInfo.panel_refresh_slower_count === undefined ||
+    trackingInfo.panel_refresh_equal_count === undefined
+  ) {
+    return {};
+  }
+
+  return {
+    panel_refresh_explicit_count: trackingInfo.panel_refresh_explicit_count,
+    panel_refresh_off_count: trackingInfo.panel_refresh_off_count,
+    panel_refresh_faster_count: trackingInfo.panel_refresh_faster_count,
+    panel_refresh_slower_count: trackingInfo.panel_refresh_slower_count,
+    panel_refresh_equal_count: trackingInfo.panel_refresh_equal_count,
+  };
 }
 
 export function trackDropItemCrossLayout(gridItem: SceneGridItemLike) {

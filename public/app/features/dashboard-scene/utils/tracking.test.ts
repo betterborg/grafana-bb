@@ -1,11 +1,13 @@
 import { getPanelPlugin } from '@grafana/data/test';
-import { locationService, reportInteraction, setPluginImportUtils } from '@grafana/runtime';
+import { config, locationService, reportInteraction, setPluginImportUtils } from '@grafana/runtime';
 import { type Spec as DashboardV2Spec } from '@grafana/schema/apis/dashboard.grafana.app/v2';
 import { setTestFlags } from '@grafana/test-utils/unstable';
 
 import { CustomDashboardTemplateInteractions } from '../analytics/dashboard-templates/main';
+import { setPanelRefreshFor } from '../scene/panel-refresh/PanelRefresh';
 import nestedDashboard from '../serialization/testfiles/nested_dashboard.json';
 
+import { dashboardSceneGraph } from './dashboardSceneGraph';
 import { DashboardInteractions } from './interactions';
 import { getTestDashboardSceneFromSaveModel } from './test-utils';
 import { trackDashboardSceneCreatedOrSaved, trackDashboardSceneLoaded } from './tracking';
@@ -116,6 +118,62 @@ describe('dashboard tracking', () => {
         expression_counts: { sql: 3, math: 1 },
         diff_count: 7,
       });
+    });
+  });
+
+  describe('panel refresh override tracking', () => {
+    afterEach(() => {
+      config.featureToggles.panelRefreshOverride = undefined;
+    });
+
+    it.each([
+      ['created', true],
+      ['saved', false],
+    ] as const)('reports only aggregate refresh properties when a dashboard is %s', async (event, isNew) => {
+      config.featureToggles.panelRefreshOverride = true;
+      const scene = buildTestScene();
+      setRefreshPolicies(scene);
+
+      await trackDashboardSceneCreatedOrSaved(isNew, scene, {
+        name: 'raw dashboard title',
+        url: 'new-url',
+        diff_count: 5,
+      });
+
+      expect(reportInteraction).toHaveBeenCalledWith(
+        `grafana_dashboard_${event}`,
+        expect.objectContaining(getExpectedRefreshTrackingProperties())
+      );
+      expect(getReportedRefreshProperties()).toEqual(getExpectedRefreshTrackingProperties());
+    });
+
+    it('reports only aggregate refresh properties when a dashboard is initialized', () => {
+      config.featureToggles.panelRefreshOverride = true;
+      const scene = buildTestScene();
+      setRefreshPolicies(scene);
+
+      trackDashboardSceneLoaded(scene, 42);
+
+      expect(reportInteraction).toHaveBeenCalledWith(
+        'dashboards_init_dashboard_completed',
+        expect.objectContaining(getExpectedRefreshTrackingProperties())
+      );
+      expect(getReportedRefreshProperties()).toEqual(getExpectedRefreshTrackingProperties());
+    });
+
+    it('omits refresh properties from all lifecycle events when the feature is disabled', async () => {
+      config.featureToggles.panelRefreshOverride = false;
+      const scene = buildTestScene();
+      setRefreshPolicies(scene);
+
+      trackDashboardSceneLoaded(scene, 42);
+      await trackDashboardSceneCreatedOrSaved(true, scene, { name: 'new', url: 'new-url', diff_count: 1 });
+      await trackDashboardSceneCreatedOrSaved(false, scene, { name: 'saved', url: 'saved-url', diff_count: 1 });
+
+      expect(reportInteraction).toHaveBeenCalledTimes(3);
+      for (const [, properties] of jest.mocked(reportInteraction).mock.calls) {
+        expect(Object.keys(properties ?? {})).not.toEqual(expect.arrayContaining(getRefreshTrackingPropertyNames()));
+      }
     });
   });
 
@@ -248,3 +306,28 @@ describe('dashboard tracking', () => {
     });
   });
 });
+
+function setRefreshPolicies(scene: ReturnType<typeof buildTestScene>) {
+  dashboardSceneGraph.getRefreshPicker(scene)?.setState({ refresh: '30s' });
+  const refreshes = ['10s', 'off', '1m', '30s', undefined, 'invalid'];
+  dashboardSceneGraph.getVizPanels(scene).forEach((panel, index) => setPanelRefreshFor(panel, refreshes[index]));
+}
+
+function getExpectedRefreshTrackingProperties() {
+  return {
+    panel_refresh_explicit_count: 4,
+    panel_refresh_off_count: 1,
+    panel_refresh_faster_count: 1,
+    panel_refresh_slower_count: 1,
+    panel_refresh_equal_count: 1,
+  };
+}
+
+function getRefreshTrackingPropertyNames() {
+  return Object.keys(getExpectedRefreshTrackingProperties());
+}
+
+function getReportedRefreshProperties() {
+  const properties = jest.mocked(reportInteraction).mock.calls[0][1] ?? {};
+  return Object.fromEntries(Object.entries(properties).filter(([key]) => key.startsWith('panel_refresh_')));
+}

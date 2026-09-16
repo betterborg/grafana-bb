@@ -1,4 +1,4 @@
-import { logWarning } from '@grafana/runtime';
+import { config, logWarning } from '@grafana/runtime';
 import { type Dashboard } from '@grafana/schema';
 import { type Spec as DashboardV2Spec } from '@grafana/schema/apis/dashboard.grafana.app/v2';
 import { AnnoKeyDashboardSnapshotOriginalUrl, type ObjectMeta } from 'app/features/apiserver/types';
@@ -19,6 +19,9 @@ import { getRawDashboardChanges, getRawDashboardV2Changes } from '../saving/getD
 import { type DashboardChangeInfo } from '../saving/shared';
 import { type DashboardScene } from '../scene/DashboardScene';
 import { makeExportableV1, makeExportableV2 } from '../scene/export/exporters';
+import { getPanelRefreshFor } from '../scene/panel-refresh/PanelRefresh';
+import { getPanelRefreshInterval, getPanelRefreshPolicy, PanelRefreshPolicy } from '../scene/panel-refresh/policy';
+import { dashboardSceneGraph } from '../utils/dashboardSceneGraph';
 import { getVariablesCompatibility } from '../utils/getVariablesCompatibility';
 import { hasPredefinedVariablesAnnotationChanges } from '../utils/predefinedVariablesMetadata';
 import { getVizPanelKeyForPanelId } from '../utils/utils';
@@ -65,7 +68,15 @@ export interface DashboardSceneSerializerLike<T, M, I = T, E = T | { error: unkn
   setK8SAnnotations: (annotations: Record<string, string>) => void;
 }
 
-export interface DashboardTrackingInfo {
+export interface PanelRefreshTrackingInfo {
+  panel_refresh_explicit_count: number;
+  panel_refresh_off_count: number;
+  panel_refresh_faster_count: number;
+  panel_refresh_slower_count: number;
+  panel_refresh_equal_count: number;
+}
+
+export interface DashboardTrackingInfo extends Partial<PanelRefreshTrackingInfo> {
   uid?: string;
   title?: string;
   schemaVersion: number;
@@ -247,7 +258,7 @@ export class V1DashboardSerializer
     };
   }
 
-  getTrackingInformation(): DashboardTrackingInfo | undefined {
+  getTrackingInformation(s?: DashboardScene): DashboardTrackingInfo | undefined {
     const panelTypes = this.initialSaveModel?.panels?.map((p) => p.type) || [];
     const panels = getPanelPluginCounts(panelTypes);
     const variables = getV1SchemaVariables(this.initialSaveModel?.templating?.list || []);
@@ -262,6 +273,7 @@ export class V1DashboardSerializer
         settings_livenow: !!this.initialSaveModel.liveNow,
         ...panels,
         ...variables,
+        ...(s ? getPanelRefreshTrackingInformation(s) : undefined),
       };
     }
     return undefined;
@@ -522,6 +534,7 @@ export class V2DashboardSerializer
       settings_livenow: !!this.initialSaveModel.liveNow,
       ...panels,
       ...variables,
+      ...getPanelRefreshTrackingInformation(s),
     };
   }
 
@@ -638,6 +651,46 @@ export class V2DashboardSerializer
         return result;
     }
   }
+}
+
+function getPanelRefreshTrackingInformation(scene: DashboardScene): PanelRefreshTrackingInfo | undefined {
+  if (!config.featureToggles.panelRefreshOverride) {
+    return undefined;
+  }
+
+  const result: PanelRefreshTrackingInfo = {
+    panel_refresh_explicit_count: 0,
+    panel_refresh_off_count: 0,
+    panel_refresh_faster_count: 0,
+    panel_refresh_slower_count: 0,
+    panel_refresh_equal_count: 0,
+  };
+  const dashboardRefreshInterval = getPanelRefreshInterval(dashboardSceneGraph.getRefreshPicker(scene)?.state.refresh);
+
+  for (const panel of dashboardSceneGraph.getVizPanels(scene)) {
+    const refresh = getPanelRefreshFor(panel)?.state.refresh;
+    const policy = getPanelRefreshPolicy(refresh);
+    if (policy === PanelRefreshPolicy.Inherit) {
+      continue;
+    }
+
+    result.panel_refresh_explicit_count++;
+    if (policy === PanelRefreshPolicy.Off) {
+      result.panel_refresh_off_count++;
+      continue;
+    }
+
+    const panelRefreshInterval = getPanelRefreshInterval(refresh)!;
+    if (dashboardRefreshInterval === undefined || panelRefreshInterval < dashboardRefreshInterval) {
+      result.panel_refresh_faster_count++;
+    } else if (panelRefreshInterval > dashboardRefreshInterval) {
+      result.panel_refresh_slower_count++;
+    } else {
+      result.panel_refresh_equal_count++;
+    }
+  }
+
+  return result;
 }
 
 export function getDashboardSceneSerializer(): DashboardSceneSerializerLike<
