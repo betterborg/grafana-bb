@@ -34,6 +34,8 @@ type PrepareRequests = (timeRange: SceneTimeRangeLike, datasource: DataSourceApi
 export class DashboardSceneQueryRunner extends SceneQueryRunner {
   private nextLifecycleId = 0;
   private pendingLifecycle?: PendingDashboardQueryLifecycle;
+  private pendingLifecycles = new Map<number, PendingDashboardQueryLifecycle>();
+  private lifecycleByRequestId = new Map<string, PendingDashboardQueryLifecycle>();
   private nextRunLifecycle?: PendingDashboardQueryLifecycle;
   private activePreparations = new Set<number>();
   private lifecycleByTimeRange = new WeakMap<SceneTimeRangeLike, PendingDashboardQueryLifecycle>();
@@ -59,7 +61,7 @@ export class DashboardSceneQueryRunner extends SceneQueryRunner {
       const requests = basePrepareRequests(timeRange, datasource);
       const lifecycle = this.querySetupLifecycle;
       if (lifecycle) {
-        lifecycle.requestId = requests.primary.requestId;
+        this.setLifecycleRequestId(lifecycle, requests.primary.requestId);
       }
       return requests;
     });
@@ -128,6 +130,16 @@ export class DashboardSceneQueryRunner extends SceneQueryRunner {
     return { id, origin, requestId };
   }
 
+  public getLifecycleForRequest(requestId: string | undefined): Readonly<DashboardQueryLifecycle> | undefined {
+    const lifecycle = this.findLifecycleForRequest(requestId);
+    if (lifecycle) {
+      const { id, origin, requestId } = lifecycle;
+      return { id, origin, requestId };
+    }
+
+    return undefined;
+  }
+
   public isQueryPending(origin?: RefreshOrigin): boolean {
     return this.pendingLifecycle !== undefined && (origin === undefined || this.pendingLifecycle.origin === origin);
   }
@@ -149,12 +161,14 @@ export class DashboardSceneQueryRunner extends SceneQueryRunner {
       previousRequestId: this.state.data?.request?.requestId,
     };
     this.pendingLifecycle = lifecycle;
+    this.pendingLifecycles.set(lifecycle.id, lifecycle);
     return lifecycle;
   }
 
   private trackRunWithTimeRange(baseRunWithTimeRange: RunWithTimeRange, timeRange: SceneTimeRangeLike): Promise<void> {
     const lifecycle = this.nextRunLifecycle ?? this.openLifecycle(this.consumeRefreshOrigin(timeRange));
     this.nextRunLifecycle = undefined;
+    this.retireSupersededLifecycles(lifecycle.id);
     const contextualTimeRange = this.createContextualTimeRange(timeRange, lifecycle);
     this.activePreparations.add(lifecycle.id);
 
@@ -219,35 +233,140 @@ export class DashboardSceneQueryRunner extends SceneQueryRunner {
   }
 
   private handleDataStateChange(state: LoadingState | undefined, requestId: string | undefined): void {
-    const lifecycle = this.pendingLifecycle;
-    if (!lifecycle) {
+    this.pruneLifecycleHistory(requestId);
+    const failedLifecycle = this.findFailedSetupLifecycle(state, requestId);
+    if (failedLifecycle) {
+      this.associateLifecycleWithRequestId(failedLifecycle, requestId);
+      this.completePendingLifecycle(failedLifecycle);
+      return;
+    }
+
+    const lifecycle = this.findLifecycleForRequest(requestId);
+    if (lifecycle) {
+      if (state === LoadingState.Done || state === LoadingState.Error) {
+        this.completePendingLifecycle(lifecycle);
+      }
+      return;
+    }
+
+    const pendingLifecycle = this.pendingLifecycle;
+    if (!pendingLifecycle) {
       return;
     }
 
     if (state === LoadingState.Done || state === LoadingState.Error) {
-      if (lifecycle.requestId) {
-        if (requestId === lifecycle.requestId) {
-          this.clearPendingLifecycle(lifecycle.id);
-        }
-      } else if (!this.activePreparations.has(lifecycle.id) && requestId !== lifecycle.previousRequestId) {
-        this.clearPendingLifecycle(lifecycle.id);
+      if (
+        !pendingLifecycle.requestId &&
+        !this.activePreparations.has(pendingLifecycle.id) &&
+        requestId !== pendingLifecycle.previousRequestId
+      ) {
+        this.setLifecycleRequestId(pendingLifecycle, requestId);
+        this.completePendingLifecycle(pendingLifecycle);
       }
       return;
     }
 
     if (
       requestId &&
-      requestId !== lifecycle.previousRequestId &&
-      !lifecycle.requestId &&
-      !this.activePreparations.has(lifecycle.id)
+      requestId !== pendingLifecycle.previousRequestId &&
+      !pendingLifecycle.requestId &&
+      !this.activePreparations.has(pendingLifecycle.id)
     ) {
-      lifecycle.requestId = requestId;
+      this.setLifecycleRequestId(pendingLifecycle, requestId);
+    }
+  }
+
+  private setLifecycleRequestId(lifecycle: PendingDashboardQueryLifecycle, requestId: string | undefined): void {
+    if (!requestId) {
+      return;
+    }
+
+    lifecycle.requestId = requestId;
+    this.lifecycleByRequestId.set(requestId, lifecycle);
+  }
+
+  private associateLifecycleWithRequestId(
+    lifecycle: PendingDashboardQueryLifecycle,
+    requestId: string | undefined
+  ): void {
+    if (requestId) {
+      this.lifecycleByRequestId.set(requestId, lifecycle);
+    }
+  }
+
+  private findFailedSetupLifecycle(
+    state: LoadingState | undefined,
+    requestId: string | undefined
+  ): PendingDashboardQueryLifecycle | undefined {
+    if (state !== LoadingState.Error) {
+      return undefined;
+    }
+
+    const setupLifecycle = this.querySetupLifecycle;
+    if (setupLifecycle && !setupLifecycle.querySubscribed && this.activePreparations.has(setupLifecycle.id)) {
+      return setupLifecycle;
+    }
+
+    const pendingLifecycle = this.pendingLifecycle;
+    if (pendingLifecycle && !pendingLifecycle.querySubscribed && requestId === pendingLifecycle.previousRequestId) {
+      return pendingLifecycle;
+    }
+
+    return undefined;
+  }
+
+  private findLifecycleForRequest(requestId: string | undefined): PendingDashboardQueryLifecycle | undefined {
+    if (!requestId) {
+      return undefined;
+    }
+
+    const lifecycle =
+      this.lifecycleByRequestId.get(requestId) ??
+      Array.from(this.pendingLifecycles.values()).find((pending) => pending.requestId === requestId);
+    if (lifecycle) {
+      this.lifecycleByRequestId.set(requestId, lifecycle);
+    }
+    return lifecycle;
+  }
+
+  private pruneLifecycleHistory(currentRequestId: string | undefined): void {
+    for (const [requestId, lifecycle] of this.lifecycleByRequestId) {
+      if (requestId !== currentRequestId && !this.pendingLifecycles.has(lifecycle.id)) {
+        this.lifecycleByRequestId.delete(requestId);
+      }
+    }
+  }
+
+  private retireSupersededLifecycles(currentLifecycleId: number): void {
+    for (const lifecycle of this.pendingLifecycles.values()) {
+      const skippedPreparation = !lifecycle.requestId && !this.activePreparations.has(lifecycle.id);
+      if (lifecycle.id !== currentLifecycleId && (lifecycle.querySubscribed || skippedPreparation)) {
+        this.discardPendingLifecycle(lifecycle);
+      }
+    }
+  }
+
+  private discardPendingLifecycle(lifecycle: PendingDashboardQueryLifecycle): void {
+    this.clearPendingLifecycle(lifecycle.id);
+    for (const [requestId, mappedLifecycle] of this.lifecycleByRequestId) {
+      if (mappedLifecycle.id === lifecycle.id) {
+        this.lifecycleByRequestId.delete(requestId);
+      }
     }
   }
 
   private clearPendingLifecycle(lifecycleId: number | undefined): void {
-    if (lifecycleId !== undefined && this.pendingLifecycle?.id === lifecycleId) {
+    if (lifecycleId === undefined) {
+      return;
+    }
+
+    this.pendingLifecycles.delete(lifecycleId);
+    if (this.pendingLifecycle?.id === lifecycleId) {
       this.pendingLifecycle = undefined;
     }
+  }
+
+  private completePendingLifecycle(lifecycle: PendingDashboardQueryLifecycle): void {
+    this.clearPendingLifecycle(lifecycle.id);
   }
 }
