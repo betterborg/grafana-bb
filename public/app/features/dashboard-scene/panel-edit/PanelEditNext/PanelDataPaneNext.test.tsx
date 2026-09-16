@@ -14,6 +14,8 @@ import {
 } from '@grafana/scenes';
 import { type DataQuery } from '@grafana/schema';
 
+import { getPanelRefreshFor } from '../../scene/panel-refresh/PanelRefresh';
+import { PanelRefreshPolicy } from '../../scene/panel-refresh/policy';
 import { PanelTimeRange, type PanelTimeRangeState } from '../../scene/panel-timerange/PanelTimeRange';
 
 import { PanelDataPaneNext } from './PanelDataPaneNext';
@@ -126,6 +128,52 @@ describe('PanelDataPaneNext', () => {
   });
 
   describe('onQueryOptionsChange', () => {
+    describe('panel refresh', () => {
+      const originalPanelRefreshOverride = config.featureToggles.panelRefreshOverride;
+
+      beforeEach(() => {
+        config.featureToggles.panelRefreshOverride = true;
+      });
+
+      afterAll(() => {
+        config.featureToggles.panelRefreshOverride = originalPanelRefreshOverride;
+      });
+
+      it('updates and resets refresh through one controller with its time range interceptor', () => {
+        dataPane.onQueryOptionsChange({
+          dataSource: { type: 'test', uid: 'test' },
+          queries: [],
+          refresh: '30s',
+        });
+
+        const controller = getPanelRefreshFor(mockPanel)!;
+        expect(controller.state.refresh).toBe('30s');
+        expect(controller.policy).toBe(PanelRefreshPolicy.Interval);
+        expect(mockPanel.state.$timeRange).toBeInstanceOf(PanelTimeRange);
+
+        dataPane.onQueryOptionsChange({
+          dataSource: { type: 'test', uid: 'test' },
+          queries: [],
+          refresh: 'off',
+        });
+
+        expect(getPanelRefreshFor(mockPanel)).toBe(controller);
+        expect(controller.policy).toBe(PanelRefreshPolicy.Off);
+        expect(mockPanel.state.$timeRange).toBeInstanceOf(PanelTimeRange);
+
+        dataPane.onQueryOptionsChange({
+          dataSource: { type: 'test', uid: 'test' },
+          queries: [],
+          refresh: undefined,
+        });
+
+        expect(getPanelRefreshFor(mockPanel)).toBe(controller);
+        expect(controller.state.refresh).toBeUndefined();
+        expect(controller.policy).toBe(PanelRefreshPolicy.Inherit);
+        expect(mockPanel.state.$timeRange).toBeUndefined();
+      });
+    });
+
     describe('max data points and min interval', () => {
       it('should update maxDataPoints on SceneQueryRunner', () => {
         dataPane.onQueryOptionsChange({
@@ -246,6 +294,7 @@ describe('PanelDataPaneNext', () => {
 
       it('should preserve compareWith when updating other query options', () => {
         mockPanel.setState({ $timeRange: new PanelTimeRange({ compareWith: '1d' }) });
+        (mockPanel.setState as jest.Mock).mockClear();
 
         dataPane.onQueryOptionsChange({
           dataSource: { type: 'test', uid: 'test' },
@@ -254,9 +303,9 @@ describe('PanelDataPaneNext', () => {
           timeRange: { from: undefined, shift: undefined },
         });
 
-        const lastCall = (mockPanel.setState as jest.Mock).mock.calls.at(-1)[0];
-        expect(lastCall.$timeRange).toBeInstanceOf(PanelTimeRange);
-        expect((lastCall.$timeRange.state as PanelTimeRangeState).compareWith).toBe('1d');
+        const panelStateUpdate = (mockPanel.setState as jest.Mock).mock.calls[0][0];
+        expect(panelStateUpdate.$timeRange).toBeInstanceOf(PanelTimeRange);
+        expect((panelStateUpdate.$timeRange.state as PanelTimeRangeState).compareWith).toBe('1d');
       });
 
       it('should set hideTimeOverride on PanelTimeRange', () => {

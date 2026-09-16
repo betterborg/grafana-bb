@@ -44,6 +44,7 @@ export enum QueryOptionField {
   maxDataPoints = 'maxDataPoints',
   minInterval = 'minInterval',
   interval = 'interval',
+  refresh = 'refresh',
   relativeTime = 'relativeTime',
   timeShift = 'timeShift',
   hideTimeOverride = 'hideTimeOverride',

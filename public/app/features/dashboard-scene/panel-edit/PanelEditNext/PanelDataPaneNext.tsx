@@ -26,6 +26,7 @@ import { storeLastUsedDataSourceInLocalStorage } from 'app/features/datasources/
 import { MIXED_DATASOURCE_NAME } from 'app/plugins/datasource/mixed/MixedDataSource';
 import { type QueryGroupOptions } from 'app/types/query';
 
+import { setPanelRefreshFor } from '../../scene/panel-refresh/PanelRefresh';
 import { PanelTimeRange } from '../../scene/panel-timerange/PanelTimeRange';
 import { getUpdatedHoverHeader } from '../../scene/panel-timerange/utils';
 import { getDashboardSceneFor, getQueryRunnerFor } from '../../utils/utils';
@@ -753,6 +754,7 @@ export class PanelDataPaneNext extends SceneObjectBase<PanelDataPaneNextState> {
     }
 
     panel.setState(panelStateUpdate);
+    setPanelRefreshFor(panel, options.refresh ?? undefined);
     queryRunner.setState(dataObjStateUpdate);
     queryRunner.runQueries();
   };

@@ -151,6 +151,14 @@ export const QUERY_OPTION_FIELD_CONFIG: Record<QueryOptionField, QueryOptionFiel
       ),
     getLabel: () => t('query-editor-next.details-sidebar.interval', 'Interval'),
   },
+  [QueryOptionField.refresh]: {
+    getTooltip: () =>
+      t(
+        'query-editor-next.details-sidebar.refresh-tooltip',
+        'Manual refreshes and time range changes refresh every panel.'
+      ),
+    getLabel: () => t('query-editor-next.details-sidebar.refresh', 'Refresh'),
+  },
   [QueryOptionField.relativeTime]: {
     getTooltip: () =>
       t(

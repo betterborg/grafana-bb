@@ -14712,6 +14712,7 @@
   },
   "query": {
     "panel-refresh-picker": {
+      "aria-label": "Panel refresh interval",
       "custom-option": "Use custom interval: {{interval}}",
       "default": "Default",
       "description": "Manual refreshes and time range changes refresh every panel.",
@@ -14833,6 +14834,8 @@
       "min-interval": "Min interval",
       "min-interval-tooltip": "A lower limit for the interval. Recommended to be set to write frequency, for example 1m if your data is written every minute.",
       "no-limit": "No limit",
+      "refresh": "Refresh",
+      "refresh-tooltip": "Manual refreshes and time range changes refresh every panel.",
       "relative-time": "Relative time",
       "relative-time-tooltip": "Overrides the relative time range for individual panels. For example, to configure the Last 5 minutes use now-5m.",
       "time-range-max-data-points": "Time range / max data points",

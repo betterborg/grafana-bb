@@ -1,7 +1,8 @@
-import { renderHook } from '@testing-library/react';
+import { act, renderHook } from '@testing-library/react';
 
 import { SceneQueryRunner, VizPanel } from '@grafana/scenes';
 
+import { getPanelRefreshFor, setPanelRefreshFor } from '../../../../scene/panel-refresh/PanelRefresh';
 import { PanelTimeRange } from '../../../../scene/panel-timerange/PanelTimeRange';
 import { ds1SettingsMock } from '../testUtils';
 
@@ -85,5 +86,27 @@ describe('useQueryOptions', () => {
 
     expect(resultNoCaching.current.cacheTimeout).toBeUndefined();
     expect(resultNoCaching.current.queryCachingTTL).toBeUndefined();
+  });
+
+  it('extracts refresh and tracks controller updates and resets', () => {
+    const panel = new VizPanel({ key: 'panel-1' });
+    const queryRunner = new SceneQueryRunner({ queries: [] });
+    setPanelRefreshFor(panel, '30s');
+
+    const { result } = renderHook(() =>
+      useQueryOptions({
+        panel,
+        queryRunner,
+        dsSettings: ds1SettingsMock,
+      })
+    );
+
+    expect(result.current.refresh).toBe('30s');
+
+    act(() => getPanelRefreshFor(panel)?.setState({ refresh: 'off' }));
+    expect(result.current.refresh).toBe('off');
+
+    act(() => getPanelRefreshFor(panel)?.setState({ refresh: undefined }));
+    expect(result.current.refresh).toBeUndefined();
   });
 });
