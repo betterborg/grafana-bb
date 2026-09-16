@@ -90,11 +90,31 @@ describe('PanelRefresh', () => {
         <panelRefresh.Component model={panelRefresh} />
       </Providers>
     );
-    fireEvent.mouseEnter(screen.getByText('30s'));
+    fireEvent.mouseEnter(screen.getByRole('button', { name: 'Panel refreshes every 30s' }));
     act(() => jest.advanceTimersByTime(1000));
 
     expect(screen.getByText('Panel refreshes every 30s')).toBeInTheDocument();
     expect(screen.getByText(`Updated ${dateTimeFormat(2000, { timeZone: 'browser' })}`)).toBeInTheDocument();
+    deactivate();
+  });
+
+  it('renders the indicator as an accessible control that opens panel time settings', () => {
+    const scheduler = buildPanel('off', { title: '' });
+    const panelRefresh = getPanelRefreshFor(scheduler.panel)!;
+    const openSettings = jest.spyOn(scheduler.panelTimeRange!, 'onOpenSettings').mockImplementation();
+    const Providers = getWrapper({});
+    const deactivate = scheduler.panel.activate();
+
+    render(
+      <Providers>
+        <panelRefresh.Component model={panelRefresh} />
+      </Providers>
+    );
+
+    const indicator = screen.getByRole('button', { name: 'Automatic panel refresh is off' });
+    expect(screen.getByText('Off')).not.toHaveAttribute('tabindex');
+    fireEvent.click(indicator);
+    expect(openSettings).toHaveBeenCalledTimes(1);
     deactivate();
   });
 

@@ -1,3 +1,4 @@
+import { css } from '@emotion/css';
 import { createElement } from 'react';
 import type { Unsubscribable } from 'rxjs';
 
@@ -11,7 +12,7 @@ import {
   type SceneObjectState,
   VizPanel,
 } from '@grafana/scenes';
-import { Badge, PanelChrome } from '@grafana/ui';
+import { Badge, PanelChrome, Tooltip, useStyles2 } from '@grafana/ui';
 
 import { DashboardSceneQueryRunner } from '../DashboardSceneQueryRunner';
 import { PanelTimeRange } from '../panel-timerange/PanelTimeRange';
@@ -26,6 +27,7 @@ export interface PanelRefreshState extends SceneObjectState {
 }
 
 interface PanelRefreshTimeRange {
+  onOpenSettings(): void;
   refreshForPanelTick(): void;
   setPanelRefreshPolicy(policy: PanelRefreshPolicy, onGlobalRefresh?: () => void): void;
 }
@@ -153,6 +155,10 @@ export class PanelRefresh extends SceneObjectBase<PanelRefreshState> {
       });
     }
   }
+
+  public onOpenSettings = (): void => {
+    this.panelTimeRange?.onOpenSettings();
+  };
 
   private onVisibilityChange = (): void => {
     if (document.visibilityState === 'visible' && this.missedWhileHidden) {
@@ -305,7 +311,11 @@ export function getPanelRefreshFor(panel: VizPanel): PanelRefresh | undefined {
 
 function isPanelRefreshTimeRange(value: unknown): value is PanelRefreshTimeRange {
   return (
-    typeof value === 'object' && value !== null && 'refreshForPanelTick' in value && 'setPanelRefreshPolicy' in value
+    typeof value === 'object' &&
+    value !== null &&
+    'onOpenSettings' in value &&
+    'refreshForPanelTick' in value &&
+    'setPanelRefreshPolicy' in value
   );
 }
 
@@ -327,6 +337,7 @@ export function hasPanelRefreshIndicator(refresh?: string | null): boolean {
 
 function PanelRefreshRenderer({ model }: SceneComponentProps<PanelRefresh>) {
   const { lastUpdated, refresh } = model.useState();
+  const styles = useStyles2(getPanelRefreshStyles);
   const policy = model.policy;
   if (policy === PanelRefreshPolicy.Inherit) {
     return null;
@@ -353,8 +364,21 @@ function PanelRefreshRenderer({ model }: SceneComponentProps<PanelRefresh>) {
   );
 
   return createElement(
-    PanelChrome.TitleItem,
-    undefined,
-    createElement(Badge, { color: 'blue', icon: 'sync', text: badgeText, tooltip })
+    Tooltip,
+    { content: tooltip },
+    createElement(
+      PanelChrome.TitleItem,
+      { 'aria-label': policyText, className: styles.indicator, onClick: model.onOpenSettings },
+      createElement(Badge, { color: 'blue', icon: 'sync', text: badgeText })
+    )
   );
 }
+
+const getPanelRefreshStyles = () => ({
+  indicator: css({
+    '&:hover': {
+      background: 'transparent',
+      boxShadow: 'none',
+    },
+  }),
+});
