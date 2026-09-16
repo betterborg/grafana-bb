@@ -2,6 +2,7 @@ import { fireEvent, screen } from '@testing-library/react';
 
 import { type PanelData } from '@grafana/data';
 import { config } from '@grafana/runtime';
+import { getDashboardSrv } from 'app/features/dashboard/services/DashboardSrv';
 import { type QueryGroupOptions } from 'app/types/query';
 
 import { renderWithQueryEditorProvider, mockOptions, mockActions } from '../testUtils';
@@ -10,6 +11,7 @@ import { QueryEditorDetailsSidebar } from './QueryEditorDetailsSidebar';
 
 describe('QueryEditorDetailsSidebar', () => {
   const mockCloseSidebar = jest.fn();
+  const getCurrentDashboard = jest.spyOn(getDashboardSrv(), 'getCurrent');
   const originalPanelRefreshOverride = config.featureToggles.panelRefreshOverride;
 
   const defaultQrState: { queries: never[]; data: PanelData | undefined } = {
@@ -24,6 +26,7 @@ describe('QueryEditorDetailsSidebar', () => {
 
   beforeEach(() => {
     jest.clearAllMocks();
+    getCurrentDashboard.mockReturnValue(undefined);
     config.featureToggles.panelRefreshOverride = true;
   });
 
@@ -70,6 +73,21 @@ describe('QueryEditorDetailsSidebar', () => {
   });
 
   describe('refresh picker', () => {
+    it('uses the dashboard refresh intervals', async () => {
+      getCurrentDashboard.mockReturnValue({
+        timepicker: { refresh_intervals: ['7s', '13s', '1m'] },
+      } as ReturnType<typeof getDashboardSrv>['dashboard']);
+
+      const { user } = renderSidebar();
+
+      await user.click(screen.getByRole('combobox', { name: 'Panel refresh interval' }));
+
+      expect(screen.getByRole('option', { name: '7s' })).toBeInTheDocument();
+      expect(screen.getByRole('option', { name: '13s' })).toBeInTheDocument();
+      expect(screen.queryByRole('option', { name: '5s' })).not.toBeInTheDocument();
+      expect(screen.queryByRole('option', { name: '10s' })).not.toBeInTheDocument();
+    });
+
     it('should call onQueryOptionsChange with an updated refresh policy', async () => {
       const { user } = renderSidebar();
 

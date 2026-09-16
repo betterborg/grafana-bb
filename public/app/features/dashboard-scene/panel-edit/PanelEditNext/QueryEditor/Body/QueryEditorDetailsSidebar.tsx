@@ -5,6 +5,7 @@ import { type GrafanaTheme2, rangeUtil } from '@grafana/data';
 import { t } from '@grafana/i18n';
 import { config } from '@grafana/runtime';
 import { ClickOutsideWrapper, Stack, Switch, useStyles2 } from '@grafana/ui';
+import { getDashboardSrv } from 'app/features/dashboard/services/DashboardSrv';
 import { PanelRefreshPicker } from 'app/features/query/components/PanelRefreshPicker';
 
 import {
@@ -42,6 +43,8 @@ export function QueryEditorDetailsSidebar() {
   const showCacheTimeout = dsSettings?.meta.queryOptions?.cacheTimeout;
   const showCacheTTL = dsSettings?.cachingConfig?.enabled;
   const showHideTimeOverride = options.timeRange?.from != null || options.timeRange?.shift != null;
+  const dashboardRefreshIntervals = getDashboardSrv().getCurrent()?.timepicker.refresh_intervals;
+  const refreshIntervals = Array.isArray(dashboardRefreshIntervals) ? dashboardRefreshIntervals : undefined;
 
   const handleCloseSidebar = useCallback(() => {
     // Blur any focused input to trigger its blur handler before closing
@@ -151,9 +154,7 @@ export function QueryEditorDetailsSidebar() {
             />
 
             {config.featureToggles.panelRefreshOverride && (
-              <OptionField field={QueryOptionField.refresh}>
-                <PanelRefreshPicker hideLabel value={options.refresh} onChange={handleRefreshChange} />
-              </OptionField>
+              <PanelRefreshPicker value={options.refresh} intervals={refreshIntervals} onChange={handleRefreshChange} />
             )}
 
             <OptionField
