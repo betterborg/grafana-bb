@@ -8,10 +8,17 @@ import * as panelRefresh from '../panel-refresh/PanelRefresh';
 import { PanelTimeRange } from './PanelTimeRange';
 import { PanelTimeRangeDrawer } from './PanelTimeRangeDrawer';
 
+const mockGetCurrentDashboard = jest.fn();
+
+jest.mock('app/features/dashboard/services/DashboardSrv', () => ({
+  getDashboardSrv: () => ({ getCurrent: mockGetCurrentDashboard }),
+}));
+
 describe('PanelTimeRangeDrawer panel refresh', () => {
   const originalFeatureToggle = config.featureToggles.panelRefreshOverride;
 
   beforeEach(() => {
+    mockGetCurrentDashboard.mockReset();
     config.featureToggles.panelRefreshOverride = true;
   });
 
@@ -26,7 +33,7 @@ describe('PanelTimeRangeDrawer panel refresh', () => {
     const setPanelRefreshSpy = jest.spyOn(panelRefresh, 'setPanelRefreshFor');
     const { user } = render(<PanelTimeRangeDrawer.Component model={drawer} />);
 
-    await user.click(screen.getByRole('combobox', { name: 'Panel refresh interval' }));
+    await user.click(screen.getByRole('combobox', { name: 'Refresh' }));
     await user.click(screen.getByRole('option', { name: 'Off' }));
     await user.click(screen.getByRole('button', { name: 'Apply' }));
 
@@ -76,7 +83,29 @@ describe('PanelTimeRangeDrawer panel refresh', () => {
 
     render(<PanelTimeRangeDrawer.Component model={drawer} />);
 
-    expect(screen.queryByRole('combobox', { name: 'Panel refresh interval' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('combobox', { name: 'Refresh' })).not.toBeInTheDocument();
+  });
+
+  it('uses the dashboard refresh intervals', async () => {
+    mockGetCurrentDashboard.mockReturnValue({ timepicker: { refresh_intervals: ['7s', '13s', '1m'] } });
+    const drawer = buildDrawer(buildPanel());
+    const { user } = render(<PanelTimeRangeDrawer.Component model={drawer} />);
+
+    await user.click(screen.getByRole('combobox', { name: 'Refresh' }));
+
+    expect(screen.getByRole('option', { name: '7s' })).toBeInTheDocument();
+    expect(screen.getByRole('option', { name: '13s' })).toBeInTheDocument();
+    expect(screen.queryByRole('option', { name: '5s' })).not.toBeInTheDocument();
+  });
+
+  it('falls back to default refresh intervals when the dashboard value is not an array', async () => {
+    mockGetCurrentDashboard.mockReturnValue({ timepicker: { refresh_intervals: null } });
+    const drawer = buildDrawer(buildPanel());
+    const { user } = render(<PanelTimeRangeDrawer.Component model={drawer} />);
+
+    await user.click(screen.getByRole('combobox', { name: 'Refresh' }));
+
+    expect(screen.getByRole('option', { name: '5s' })).toBeInTheDocument();
   });
 });
 

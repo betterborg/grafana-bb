@@ -9,6 +9,7 @@ import {
   type VizPanel,
 } from '@grafana/scenes';
 import { Box, Button, Combobox, Drawer, FeatureBadge, Field, Label, Stack, Switch } from '@grafana/ui';
+import { getDashboardSrv } from 'app/features/dashboard/services/DashboardSrv';
 
 import { getQuickOptions } from '../../../../../../packages/grafana-ui/src/components/DateTimePickers/options';
 import { PanelRefreshPicker } from '../../../query/components/PanelRefreshPicker';
@@ -97,6 +98,8 @@ export class PanelTimeRangeDrawer extends SceneObjectBase<PanelTimeRangeDrawerSt
 
   static Component = ({ model }: SceneComponentProps<PanelTimeRangeDrawer>) => {
     const { timeFrom, timeShift, compareWith, hideTimeOverride, refresh } = model.useState();
+    const configuredRefreshIntervals = getDashboardSrv().getCurrent()?.timepicker.refresh_intervals;
+    const refreshIntervals = Array.isArray(configuredRefreshIntervals) ? configuredRefreshIntervals : undefined;
 
     const timeOptions = getQuickOptions()
       .filter((o) => {
@@ -162,7 +165,11 @@ export class PanelTimeRangeDrawer extends SceneObjectBase<PanelTimeRangeDrawerSt
           </Field>
 
           {config.featureToggles.panelRefreshOverride && (
-            <PanelRefreshPicker value={refresh} onChange={(refresh) => model.setState({ refresh })} />
+            <PanelRefreshPicker
+              value={refresh}
+              intervals={refreshIntervals}
+              onChange={(refresh) => model.setState({ refresh })}
+            />
           )}
 
           {config.featureToggles.timeComparison && (
