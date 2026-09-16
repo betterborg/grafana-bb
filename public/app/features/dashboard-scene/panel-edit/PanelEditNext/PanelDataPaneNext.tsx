@@ -26,7 +26,7 @@ import { storeLastUsedDataSourceInLocalStorage } from 'app/features/datasources/
 import { MIXED_DATASOURCE_NAME } from 'app/plugins/datasource/mixed/MixedDataSource';
 import { type QueryGroupOptions } from 'app/types/query';
 
-import { setPanelRefreshFor } from '../../scene/panel-refresh/PanelRefresh';
+import { hasPanelRefreshIndicator, setPanelRefreshFor } from '../../scene/panel-refresh/PanelRefresh';
 import { PanelTimeRange } from '../../scene/panel-timerange/PanelTimeRange';
 import { getUpdatedHoverHeader } from '../../scene/panel-timerange/utils';
 import { getDashboardSceneFor, getQueryRunnerFor } from '../../utils/utils';
@@ -739,10 +739,18 @@ export class PanelDataPaneNext extends SceneObjectBase<PanelDataPaneNextState> {
 
     if (timeFrom !== undefined || timeShift !== undefined || compareWith) {
       panelStateUpdate.$timeRange = new PanelTimeRange({ timeFrom, timeShift, hideTimeOverride, compareWith });
-      panelStateUpdate.hoverHeader = getUpdatedHoverHeader(panel.state.title, panelStateUpdate.$timeRange?.state);
+      panelStateUpdate.hoverHeader = getUpdatedHoverHeader(
+        panel.state.title,
+        panelStateUpdate.$timeRange?.state,
+        hasPanelRefreshIndicator(options.refresh)
+      );
     } else {
       panelStateUpdate.$timeRange = undefined;
-      panelStateUpdate.hoverHeader = getUpdatedHoverHeader(panel.state.title, undefined);
+      panelStateUpdate.hoverHeader = getUpdatedHoverHeader(
+        panel.state.title,
+        undefined,
+        hasPanelRefreshIndicator(options.refresh)
+      );
     }
 
     if (options.cacheTimeout !== queryRunner.state.cacheTimeout) {

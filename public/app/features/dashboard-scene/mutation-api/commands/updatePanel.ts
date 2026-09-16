@@ -14,7 +14,11 @@ import { type FieldConfigSource } from '@grafana/data';
 
 import { ConditionalRenderingGroup } from '../../conditional-rendering/group/ConditionalRenderingGroup';
 import { AutoGridItem } from '../../scene/layout-auto-grid/AutoGridItem';
-import { setPanelRefreshFor } from '../../scene/panel-refresh/PanelRefresh';
+import {
+  getPanelRefreshFor,
+  hasPanelRefreshIndicator,
+  setPanelRefreshFor,
+} from '../../scene/panel-refresh/PanelRefresh';
 import { PanelTimeRange } from '../../scene/panel-timerange/PanelTimeRange';
 import { getUpdatedHoverHeader } from '../../scene/panel-timerange/utils';
 import { getElements, panelQueryKindToSceneQuery } from '../../serialization/layoutSerializers/utils';
@@ -212,7 +216,11 @@ export const updatePanelCommand: MutationCommand<UpdatePanelPayload> = {
                 });
                 vizPanel.setState({
                   $timeRange: timeRange,
-                  hoverHeader: getUpdatedHoverHeader(vizPanel.state.title, timeRange.state),
+                  hoverHeader: getUpdatedHoverHeader(
+                    vizPanel.state.title,
+                    timeRange.state,
+                    hasPanelRefreshIndicator(getPanelRefreshFor(vizPanel)?.state.refresh)
+                  ),
                 });
               }
             }

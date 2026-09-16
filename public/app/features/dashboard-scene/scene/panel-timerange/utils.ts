@@ -7,8 +7,12 @@ import type { PanelTimeRangeState } from './PanelTimeRange';
  * nothing always-visible to display in it (no title, no visible time override).
  * return true hides the header, return false displays the header
  */
-export function getUpdatedHoverHeader(title: string, timeOverride?: Partial<PanelTimeRangeState>): boolean {
-  if (title !== '') {
+export function getUpdatedHoverHeader(
+  title: string,
+  timeOverride?: Partial<PanelTimeRangeState>,
+  hasRefreshIndicator = false
+): boolean {
+  if (title !== '' || hasRefreshIndicator) {
     return false;
   }
 

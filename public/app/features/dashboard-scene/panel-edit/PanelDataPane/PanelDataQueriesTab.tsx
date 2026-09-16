@@ -38,7 +38,11 @@ import { hasSavedQueryReadPermissions } from '../../../explore/QueryLibrary/util
 import { ExpressionDatasourceUID } from '../../../expressions/types';
 import { getDatasourceSrv } from '../../../plugins/datasource_srv';
 import { PanelInspectDrawer } from '../../inspect/PanelInspectDrawer';
-import { getPanelRefreshFor, setPanelRefreshFor } from '../../scene/panel-refresh/PanelRefresh';
+import {
+  getPanelRefreshFor,
+  hasPanelRefreshIndicator,
+  setPanelRefreshFor,
+} from '../../scene/panel-refresh/PanelRefresh';
 import { PanelTimeRange } from '../../scene/panel-timerange/PanelTimeRange';
 import { getUpdatedHoverHeader } from '../../scene/panel-timerange/utils';
 import { getDashboardSceneFor, getQueryRunnerFor } from '../../utils/utils';
@@ -257,10 +261,18 @@ export class PanelDataQueriesTab extends SceneObjectBase<PanelDataQueriesTabStat
 
     if (timeFrom !== undefined || timeShift !== undefined || compareWith) {
       panelStateUpdate.$timeRange = new PanelTimeRange({ timeFrom, timeShift, hideTimeOverride, compareWith });
-      panelStateUpdate.hoverHeader = getUpdatedHoverHeader(panel.state.title, panelStateUpdate.$timeRange?.state);
+      panelStateUpdate.hoverHeader = getUpdatedHoverHeader(
+        panel.state.title,
+        panelStateUpdate.$timeRange?.state,
+        hasPanelRefreshIndicator(options.refresh)
+      );
     } else {
       panelStateUpdate.$timeRange = undefined;
-      panelStateUpdate.hoverHeader = getUpdatedHoverHeader(panel.state.title, undefined);
+      panelStateUpdate.hoverHeader = getUpdatedHoverHeader(
+        panel.state.title,
+        undefined,
+        hasPanelRefreshIndicator(options.refresh)
+      );
     }
 
     if (options.cacheTimeout !== dataObj?.state.cacheTimeout) {

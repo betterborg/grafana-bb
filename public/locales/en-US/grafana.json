@@ -6020,6 +6020,14 @@
     "panel-not-supported": {
       "go-back-to-queries": "Go back to Queries"
     },
+    "panel-refresh": {
+      "badge-interval": "{{interval}}",
+      "badge-off": "Off",
+      "not-updated": "Not updated yet",
+      "tooltip-interval": "Panel refreshes every {{interval}}",
+      "tooltip-off": "Automatic panel refresh is off",
+      "updated": "Updated {{timestamp}}"
+    },
     "public-dashboard-not-available": {
       "does-not-exist": "The dashboard you are trying to access does not exist",
       "paused": "This dashboard has been paused by the administrator",

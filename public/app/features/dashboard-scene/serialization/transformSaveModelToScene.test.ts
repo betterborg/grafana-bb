@@ -651,6 +651,19 @@ describe('transformSaveModelToScene', () => {
       expect(vizPanel.state.hoverHeader).toEqual(true);
     });
 
+    it.each(['30s', 'off'])('should keep a titleless explicit %s policy always visible', (refresh) => {
+      const previousToggle = config.featureToggles.panelRefreshOverride;
+      config.featureToggles.panelRefreshOverride = true;
+
+      try {
+        const { vizPanel } = buildGridItemForTest({ title: '', type: 'test-plugin', refresh });
+
+        expect(vizPanel.state.hoverHeader).toBe(false);
+      } finally {
+        config.featureToggles.panelRefreshOverride = previousToggle;
+      }
+    });
+
     it('should set hoverHeader to true if timeFrom and hideTimeOverride is true', () => {
       const panel = {
         type: 'test-plugin',

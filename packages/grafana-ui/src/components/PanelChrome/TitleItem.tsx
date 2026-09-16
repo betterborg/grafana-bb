@@ -9,6 +9,7 @@ import { getFocusStyles, getMouseFocusStyles } from '../../themes/mixins';
 import { Button } from '../Button/Button';
 
 type TitleItemProps = {
+  'aria-label'?: string;
   className?: string;
   children: React.ReactNode;
   onClick?: LinkModel['onClick'];
@@ -45,6 +46,7 @@ export const TitleItem = forwardRef<TitleItemElement, TitleItemProps>(
           variant="secondary"
           fill="text"
           onClick={onClick}
+          {...rest}
         >
           {children}
         </Button>

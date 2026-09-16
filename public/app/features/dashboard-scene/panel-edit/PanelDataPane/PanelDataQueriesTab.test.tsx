@@ -580,7 +580,7 @@ describe('PanelDataQueriesTab', () => {
           expect(controller.state.refresh).toBe('30s');
           expect(controller.policy).toBe(PanelRefreshPolicy.Interval);
           expect(panel.state.$timeRange).toBeInstanceOf(PanelTimeRange);
-          expect(panel.state.hoverHeader).toBe(true);
+          expect(panel.state.hoverHeader).toBe(false);
           expect(queriesTab.buildQueryOptions().refresh).toBe('30s');
 
           queriesTab.onQueryOptionsChange({
@@ -591,6 +591,7 @@ describe('PanelDataQueriesTab', () => {
           expect(getPanelRefreshFor(panel)).toBe(controller);
           expect(controller.policy).toBe(PanelRefreshPolicy.Off);
           expect(panel.state.$timeRange).toBeInstanceOf(PanelTimeRange);
+          expect(panel.state.hoverHeader).toBe(false);
 
           queriesTab.onQueryOptionsChange({
             ...queriesTab.buildQueryOptions(),

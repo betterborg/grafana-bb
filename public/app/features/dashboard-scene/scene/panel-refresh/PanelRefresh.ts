@@ -1,11 +1,22 @@
+import { css } from '@emotion/css';
+import { createElement } from 'react';
 import type { Unsubscribable } from 'rxjs';
 
-import { LoadingState } from '@grafana/data';
+import { dateTimeFormat, LoadingState } from '@grafana/data';
+import { t } from '@grafana/i18n';
 import { config } from '@grafana/runtime';
-import { SceneDataTransformer, SceneObjectBase, type SceneObjectState, VizPanel } from '@grafana/scenes';
+import {
+  SceneDataTransformer,
+  type SceneComponentProps,
+  SceneObjectBase,
+  type SceneObjectState,
+  VizPanel,
+} from '@grafana/scenes';
+import { Badge, PanelChrome, Tooltip, useStyles2 } from '@grafana/ui';
 
 import { DashboardSceneQueryRunner } from '../DashboardSceneQueryRunner';
 import { PanelTimeRange } from '../panel-timerange/PanelTimeRange';
+import { getUpdatedHoverHeader } from '../panel-timerange/utils';
 import { RefreshOrigin, runWithRefreshOrigin } from '../refresh-origin';
 
 import { getPanelRefreshInterval, getPanelRefreshPolicy, PanelRefreshPolicy } from './policy';
@@ -16,11 +27,13 @@ export interface PanelRefreshState extends SceneObjectState {
 }
 
 interface PanelRefreshTimeRange {
+  onOpenSettings(): void;
   refreshForPanelTick(): void;
   setPanelRefreshPolicy(policy: PanelRefreshPolicy, onGlobalRefresh?: () => void): void;
 }
 
 export class PanelRefresh extends SceneObjectBase<PanelRefreshState> {
+  public static Component = PanelRefreshRenderer;
   private timeout?: ReturnType<typeof setTimeout>;
   private waitingForPending = false;
   private missedWhileHidden = false;
@@ -50,6 +63,7 @@ export class PanelRefresh extends SceneObjectBase<PanelRefreshState> {
     }
 
     this.bindPanelState(panel);
+    this.reconcilePanelChrome(panel);
 
     this._subs.add(
       this.subscribeToState((next, previous) => {
@@ -118,7 +132,33 @@ export class PanelRefresh extends SceneObjectBase<PanelRefreshState> {
     } else {
       this.removeVisibilityListener();
     }
+
+    if (this.parent instanceof VizPanel) {
+      this.reconcilePanelChrome(this.parent);
+    }
   }
+
+  public reconcilePanelChrome(panel: VizPanel): void {
+    const hasRefreshIndicator = this.policy !== PanelRefreshPolicy.Inherit;
+    const currentTitleItems = Array.isArray(panel.state.titleItems) ? panel.state.titleItems : [];
+    const titleItemsWithoutRefresh = currentTitleItems.filter((item) => !(item instanceof PanelRefresh));
+    const titleItems = hasRefreshIndicator ? [...titleItemsWithoutRefresh, this] : titleItemsWithoutRefresh;
+    const hoverHeader = getUpdatedHoverHeader(panel.state.title, panel.state.$timeRange?.state, hasRefreshIndicator);
+    const titleItemsChanged =
+      titleItems.length !== currentTitleItems.length ||
+      titleItems.some((item, index) => item !== currentTitleItems[index]);
+
+    if (panel.state.hoverHeader !== hoverHeader || titleItemsChanged) {
+      panel.setState({
+        ...(panel.state.hoverHeader !== hoverHeader ? { hoverHeader } : {}),
+        ...(titleItemsChanged ? { titleItems } : {}),
+      });
+    }
+  }
+
+  public onOpenSettings = (): void => {
+    this.panelTimeRange?.onOpenSettings();
+  };
 
   private onVisibilityChange = (): void => {
     if (document.visibilityState === 'visible' && this.missedWhileHidden) {
@@ -260,6 +300,8 @@ export function setPanelRefreshFor(panel: VizPanel, refresh?: string): PanelRefr
     panelRefresh.setState({ refresh });
   }
 
+  panelRefresh.reconcilePanelChrome(panel);
+
   return panelRefresh;
 }
 
@@ -269,7 +311,11 @@ export function getPanelRefreshFor(panel: VizPanel): PanelRefresh | undefined {
 
 function isPanelRefreshTimeRange(value: unknown): value is PanelRefreshTimeRange {
   return (
-    typeof value === 'object' && value !== null && 'refreshForPanelTick' in value && 'setPanelRefreshPolicy' in value
+    typeof value === 'object' &&
+    value !== null &&
+    'onOpenSettings' in value &&
+    'refreshForPanelTick' in value &&
+    'setPanelRefreshPolicy' in value
   );
 }
 
@@ -281,3 +327,58 @@ function getDashboardQueryRunner(panel: VizPanel): DashboardSceneQueryRunner | u
 
   return dataProvider instanceof DashboardSceneQueryRunner ? dataProvider : undefined;
 }
+
+export function hasPanelRefreshIndicator(refresh?: string | null): boolean {
+  return (
+    config.featureToggles.panelRefreshOverride === true &&
+    getPanelRefreshPolicy(refresh ?? undefined) !== PanelRefreshPolicy.Inherit
+  );
+}
+
+function PanelRefreshRenderer({ model }: SceneComponentProps<PanelRefresh>) {
+  const { lastUpdated, refresh } = model.useState();
+  const styles = useStyles2(getPanelRefreshStyles);
+  const policy = model.policy;
+  if (policy === PanelRefreshPolicy.Inherit) {
+    return null;
+  }
+
+  const badgeText =
+    policy === PanelRefreshPolicy.Off
+      ? t('dashboard.panel-refresh.badge-off', 'Off')
+      : t('dashboard.panel-refresh.badge-interval', '{{interval}}', { interval: refresh });
+  const policyText =
+    policy === PanelRefreshPolicy.Off
+      ? t('dashboard.panel-refresh.tooltip-off', 'Automatic panel refresh is off')
+      : t('dashboard.panel-refresh.tooltip-interval', 'Panel refreshes every {{interval}}', { interval: refresh });
+  const freshnessText = lastUpdated
+    ? t('dashboard.panel-refresh.updated', 'Updated {{timestamp}}', {
+        timestamp: dateTimeFormat(lastUpdated, { timeZone: 'browser' }),
+      })
+    : t('dashboard.panel-refresh.not-updated', 'Not updated yet');
+  const tooltip = createElement(
+    'div',
+    undefined,
+    createElement('div', undefined, policyText),
+    createElement('div', undefined, freshnessText)
+  );
+
+  return createElement(
+    Tooltip,
+    { content: tooltip },
+    createElement(
+      PanelChrome.TitleItem,
+      { 'aria-label': policyText, className: styles.indicator, onClick: model.onOpenSettings },
+      createElement(Badge, { color: 'blue', icon: 'sync', text: badgeText })
+    )
+  );
+}
+
+const getPanelRefreshStyles = () => ({
+  indicator: css({
+    '&&:hover': {
+      background: 'transparent',
+      boxShadow: 'none',
+    },
+  }),
+});
