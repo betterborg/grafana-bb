@@ -3,10 +3,14 @@ import React, { useState, type ChangeEvent, type FocusEvent, useCallback } from 
 
 import { rangeUtil, type PanelData, type DataSourceApi, type GrafanaTheme2 } from '@grafana/data';
 import { Trans, t } from '@grafana/i18n';
+import { config } from '@grafana/runtime';
 import { Input, InlineSwitch, useStyles2, InlineLabel } from '@grafana/ui';
 import { QueryOperationRow } from 'app/core/components/QueryOperationRow/QueryOperationRow';
+import { getDashboardSrv } from 'app/features/dashboard/services/DashboardSrv';
 import { trackQueryOptionsToggle } from 'app/features/dashboard-scene/panel-edit/PanelEditNext/tracking';
 import { type QueryGroupOptions } from 'app/types/query';
+
+import { PanelRefreshPicker } from './PanelRefreshPicker';
 
 interface Props {
   options: QueryGroupOptions;
@@ -24,6 +28,8 @@ export const QueryGroupOptionsEditor = React.memo(({ options, dataSource, data, 
   const [timeShiftIsValid, setTimeShiftIsValid] = useState(true);
 
   const styles = useStyles2(getStyles);
+  const configuredRefreshIntervals = getDashboardSrv().getCurrent()?.timepicker.refresh_intervals;
+  const refreshIntervals = Array.isArray(configuredRefreshIntervals) ? configuredRefreshIntervals : undefined;
 
   const onRelativeTimeChange = useCallback((event: ChangeEvent<HTMLInputElement>) => {
     setTimeRangeFrom(event.target.value);
@@ -138,6 +144,16 @@ export const QueryGroupOptionsEditor = React.memo(({ options, dataSource, data, 
           minInterval,
         });
       }
+    },
+    [onChange, options]
+  );
+
+  const onRefreshChange = useCallback(
+    (refresh: string | undefined) => {
+      onChange({
+        ...options,
+        refresh,
+      });
     },
     [onChange, options]
   );
@@ -321,6 +337,13 @@ export const QueryGroupOptionsEditor = React.memo(({ options, dataSource, data, 
             <Trans i18nKey="query.query-group-options-editor.collapsed-interval">Interval = {{ intervalDesc }}</Trans>
           </span>
         }
+        {config.featureToggles.panelRefreshOverride && (
+          <span className={styles.collapsedText}>
+            <Trans i18nKey="query.query-group-options-editor.collapsed-refresh">
+              Refresh = {{ refresh: options.refresh ?? 'Default' }}
+            </Trans>
+          </span>
+        )}
       </>
     );
   };
@@ -340,6 +363,9 @@ export const QueryGroupOptionsEditor = React.memo(({ options, dataSource, data, 
         {renderIntervalOption()}
         {renderCacheTimeoutOption()}
         {renderQueryCachingTTLOption()}
+        {config.featureToggles.panelRefreshOverride && (
+          <PanelRefreshPicker value={options.refresh} intervals={refreshIntervals} onChange={onRefreshChange} />
+        )}
 
         <InlineLabel
           htmlFor="relative-time-input"

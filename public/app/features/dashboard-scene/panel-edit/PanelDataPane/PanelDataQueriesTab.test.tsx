@@ -27,6 +27,8 @@ import { SHARED_DASHBOARD_QUERY, DASHBOARD_DATASOURCE_PLUGIN_ID } from 'app/plug
 import { type DashboardDataDTO } from 'app/types/dashboard';
 
 import { PanelInspectDrawer } from '../../inspect/PanelInspectDrawer';
+import { getPanelRefreshFor } from '../../scene/panel-refresh/PanelRefresh';
+import { PanelRefreshPolicy } from '../../scene/panel-refresh/policy';
 import { PanelTimeRange, type PanelTimeRangeState } from '../../scene/panel-timerange/PanelTimeRange';
 import { type DashboardLayoutManager } from '../../scene/types/DashboardLayoutManager';
 import { transformSaveModelSchemaV2ToScene } from '../../serialization/transformSaveModelSchemaV2ToScene';
@@ -554,6 +556,74 @@ describe('PanelDataQueriesTab', () => {
     });
 
     describe('query options change', () => {
+      describe('panel refresh', () => {
+        const originalFeatureToggle = config.featureToggles.panelRefreshOverride;
+
+        afterEach(() => {
+          config.featureToggles.panelRefreshOverride = originalFeatureToggle;
+        });
+
+        it('maps refresh state and applies policy changes through one controller', async () => {
+          config.featureToggles.panelRefreshOverride = true;
+          const { queriesTab, panel } = await setupScene('panel-1');
+          panel.setState({ title: '', hoverHeader: true });
+
+          const controller = getPanelRefreshFor(panel)!;
+          expect(queriesTab.buildQueryOptions().refresh).toBeUndefined();
+
+          queriesTab.onQueryOptionsChange({
+            ...queriesTab.buildQueryOptions(),
+            refresh: '30s',
+          });
+
+          expect(getPanelRefreshFor(panel)).toBe(controller);
+          expect(controller.state.refresh).toBe('30s');
+          expect(controller.policy).toBe(PanelRefreshPolicy.Interval);
+          expect(panel.state.$timeRange).toBeInstanceOf(PanelTimeRange);
+          expect(panel.state.hoverHeader).toBe(true);
+          expect(queriesTab.buildQueryOptions().refresh).toBe('30s');
+
+          queriesTab.onQueryOptionsChange({
+            ...queriesTab.buildQueryOptions(),
+            refresh: 'off',
+          });
+
+          expect(getPanelRefreshFor(panel)).toBe(controller);
+          expect(controller.policy).toBe(PanelRefreshPolicy.Off);
+          expect(panel.state.$timeRange).toBeInstanceOf(PanelTimeRange);
+
+          queriesTab.onQueryOptionsChange({
+            ...queriesTab.buildQueryOptions(),
+            refresh: undefined,
+          });
+
+          expect(getPanelRefreshFor(panel)).toBe(controller);
+          expect(controller.state.refresh).toBeUndefined();
+          expect(controller.policy).toBe(PanelRefreshPolicy.Inherit);
+          expect(panel.state.$timeRange).toBeUndefined();
+          expect(panel.state.hoverHeader).toBe(true);
+        });
+
+        it('attaches a refresh controller when a legacy panel does not have one', async () => {
+          config.featureToggles.panelRefreshOverride = true;
+          const { queriesTab, panel } = await setupScene('panel-1');
+          const existingController = getPanelRefreshFor(panel)!;
+          panel.setState({
+            $behaviors: panel.state.$behaviors?.filter((behavior) => behavior !== existingController),
+          });
+
+          expect(getPanelRefreshFor(panel)).toBeUndefined();
+
+          queriesTab.onQueryOptionsChange({
+            ...queriesTab.buildQueryOptions(),
+            refresh: 'off',
+          });
+
+          expect(getPanelRefreshFor(panel)?.policy).toBe(PanelRefreshPolicy.Off);
+          expect(panel.state.$timeRange).toBeInstanceOf(PanelTimeRange);
+        });
+      });
+
       describe('time overrides', () => {
         it('should create PanelTimeRange object', async () => {
           const { queriesTab, panel } = await setupScene('panel-1');
