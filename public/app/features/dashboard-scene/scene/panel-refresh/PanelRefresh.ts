@@ -351,11 +351,7 @@ function PanelRefreshRenderer({ model }: SceneComponentProps<PanelRefresh>) {
     policy === PanelRefreshPolicy.Off
       ? t('dashboard.panel-refresh.tooltip-off', 'Automatic panel refresh is off')
       : t('dashboard.panel-refresh.tooltip-interval', 'Panel refreshes every {{interval}}', { interval: refresh });
-  const freshnessText = lastUpdated
-    ? t('dashboard.panel-refresh.updated', 'Updated {{timestamp}}', {
-        timestamp: dateTimeFormat(lastUpdated, { timeZone: 'browser' }),
-      })
-    : t('dashboard.panel-refresh.not-updated', 'Not updated yet');
+  const freshnessText = getPanelRefreshFreshnessText(lastUpdated);
   const tooltip = createElement(
     'div',
     undefined,
@@ -382,3 +378,11 @@ const getPanelRefreshStyles = () => ({
     },
   }),
 });
+
+export function getPanelRefreshFreshnessText(lastUpdated?: number): string {
+  return lastUpdated
+    ? t('dashboard.panel-refresh.updated', 'Updated {{timestamp}}', {
+        timestamp: dateTimeFormat(lastUpdated, { timeZone: 'browser' }),
+      })
+    : t('dashboard.panel-refresh.not-updated', 'Not updated yet');
+}
