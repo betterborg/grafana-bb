@@ -6,6 +6,7 @@ import { Trans, t } from '@grafana/i18n';
 import { config } from '@grafana/runtime';
 import { Input, InlineSwitch, useStyles2, InlineLabel } from '@grafana/ui';
 import { QueryOperationRow } from 'app/core/components/QueryOperationRow/QueryOperationRow';
+import { getDashboardSrv } from 'app/features/dashboard/services/DashboardSrv';
 import { trackQueryOptionsToggle } from 'app/features/dashboard-scene/panel-edit/PanelEditNext/tracking';
 import { type QueryGroupOptions } from 'app/types/query';
 
@@ -25,6 +26,7 @@ export const QueryGroupOptionsEditor = React.memo(({ options, dataSource, data, 
   const [isOpen, setIsOpen] = useState(false);
   const [relativeTimeIsValid, setRelativeTimeIsValid] = useState(true);
   const [timeShiftIsValid, setTimeShiftIsValid] = useState(true);
+  const refreshIntervals = getDashboardSrv().getCurrent()?.timepicker.refresh_intervals || undefined;
 
   const styles = useStyles2(getStyles);
 
@@ -334,6 +336,13 @@ export const QueryGroupOptionsEditor = React.memo(({ options, dataSource, data, 
             <Trans i18nKey="query.query-group-options-editor.collapsed-interval">Interval = {{ intervalDesc }}</Trans>
           </span>
         }
+        {config.featureToggles.panelRefreshOverride && options.refresh && (
+          <span className={styles.collapsedText}>
+            <Trans i18nKey="query.query-group-options-editor.collapsed-refresh">
+              Refresh = {{ refresh: options.refresh }}
+            </Trans>
+          </span>
+        )}
       </>
     );
   };
@@ -354,9 +363,7 @@ export const QueryGroupOptionsEditor = React.memo(({ options, dataSource, data, 
         {renderCacheTimeoutOption()}
         {renderQueryCachingTTLOption()}
         {config.featureToggles.panelRefreshOverride && (
-          <div className={styles.fullWidth}>
-            <PanelRefreshPicker value={options.refresh} onChange={onRefreshChange} />
-          </div>
+          <PanelRefreshPicker value={options.refresh} intervals={refreshIntervals} onChange={onRefreshChange} />
         )}
 
         <InlineLabel
@@ -450,10 +457,6 @@ function getStyles(theme: GrafanaTheme2) {
     }),
     firstColumn: css({
       gridColumn: 1,
-    }),
-    fullWidth: css({
-      gridColumn: '1 / -1',
-      minWidth: 0,
     }),
     collapsedText: css({
       marginLeft: theme.spacing(2),
