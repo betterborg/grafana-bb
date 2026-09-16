@@ -86,4 +86,23 @@ describe('QueryGroupOptionsEditor panel refresh', () => {
     expect(screen.getByRole('option', { name: '13s' })).toBeInTheDocument();
     expect(screen.queryByRole('option', { name: '5s' })).not.toBeInTheDocument();
   });
+
+  it('falls back to default refresh intervals when the dashboard value is not an array', async () => {
+    config.featureToggles.panelRefreshOverride = true;
+    mockGetCurrentDashboard.mockReturnValue({ timepicker: { refresh_intervals: null } });
+
+    render(
+      <QueryGroupOptionsEditor
+        options={{ queries: [], dataSource: {} }}
+        dataSource={{ meta: {} } as DataSourceApi}
+        data={{} as PanelData}
+        onChange={jest.fn()}
+      />
+    );
+
+    await userEvent.click(screen.getByRole('button', { name: 'Expand query row' }));
+    await userEvent.click(screen.getByRole('combobox', { name: 'Refresh' }));
+
+    expect(screen.getByRole('option', { name: '5s' })).toBeInTheDocument();
+  });
 });

@@ -28,7 +28,8 @@ export const QueryGroupOptionsEditor = React.memo(({ options, dataSource, data, 
   const [timeShiftIsValid, setTimeShiftIsValid] = useState(true);
 
   const styles = useStyles2(getStyles);
-  const refreshIntervals = getDashboardSrv().getCurrent()?.timepicker.refresh_intervals;
+  const configuredRefreshIntervals = getDashboardSrv().getCurrent()?.timepicker.refresh_intervals;
+  const refreshIntervals = Array.isArray(configuredRefreshIntervals) ? configuredRefreshIntervals : undefined;
 
   const onRelativeTimeChange = useCallback((event: ChangeEvent<HTMLInputElement>) => {
     setTimeRangeFrom(event.target.value);
