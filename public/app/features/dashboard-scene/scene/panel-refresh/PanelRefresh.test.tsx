@@ -113,6 +113,15 @@ describe('PanelRefresh', () => {
 
     const indicator = screen.getByRole('button', { name: 'Automatic panel refresh is off' });
     expect(screen.getByText('Off')).not.toHaveAttribute('tabindex');
+    const indicatorClass = Array.from(indicator.classList).find((className) => className.startsWith('css-'))!;
+    const hoverRule = Array.from(document.styleSheets)
+      .flatMap((styleSheet) => Array.from(styleSheet.cssRules))
+      .find((rule) =>
+        (rule as CSSStyleRule).selectorText?.includes(`.${indicatorClass}.${indicatorClass}:hover`)
+      ) as CSSStyleRule;
+
+    expect(hoverRule.style.background).toBe('transparent');
+    expect(hoverRule.style.getPropertyValue('box-shadow')).toBe('none');
     fireEvent.click(indicator);
     expect(openSettings).toHaveBeenCalledTimes(1);
     deactivate();

@@ -376,7 +376,7 @@ function PanelRefreshRenderer({ model }: SceneComponentProps<PanelRefresh>) {
 
 const getPanelRefreshStyles = () => ({
   indicator: css({
-    '&:hover': {
+    '&&:hover': {
       background: 'transparent',
       boxShadow: 'none',
     },
