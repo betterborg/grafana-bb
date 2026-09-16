@@ -75,6 +75,7 @@ describe('PanelRefresh', () => {
     );
 
     expect(screen.getByText(badge)).toBeInTheDocument();
+    expect(screen.getByText(badge)).not.toHaveAttribute('tabindex');
   });
 
   it('shows policy and the latest streaming freshness in the tooltip', () => {

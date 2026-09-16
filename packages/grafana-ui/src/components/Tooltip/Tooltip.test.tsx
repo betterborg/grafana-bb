@@ -98,4 +98,16 @@ describe('Tooltip', () => {
       })
     ).toBeInTheDocument();
   });
+
+  it('can annotate non-interactive content without adding a keyboard focus stop', async () => {
+    render(
+      <Tooltip content="Tooltip content" focusable={false}>
+        <span>On the page</span>
+      </Tooltip>
+    );
+
+    expect(screen.getByText('On the page')).not.toHaveAttribute('tabindex');
+    await userEvent.hover(screen.getByText('On the page'));
+    expect(await screen.findByText('Tooltip content')).toBeInTheDocument();
+  });
 });

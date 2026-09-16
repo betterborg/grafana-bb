@@ -1,3 +1,4 @@
+import { css } from '@emotion/css';
 import { createElement } from 'react';
 import type { Unsubscribable } from 'rxjs';
 
@@ -11,7 +12,7 @@ import {
   type SceneObjectState,
   VizPanel,
 } from '@grafana/scenes';
-import { Badge, PanelChrome } from '@grafana/ui';
+import { Badge, PanelChrome, Tooltip } from '@grafana/ui';
 
 import { DashboardSceneQueryRunner } from '../DashboardSceneQueryRunner';
 import { PanelTimeRange } from '../panel-timerange/PanelTimeRange';
@@ -354,7 +355,18 @@ function PanelRefreshRenderer({ model }: SceneComponentProps<PanelRefresh>) {
 
   return createElement(
     PanelChrome.TitleItem,
-    undefined,
-    createElement(Badge, { color: 'blue', icon: 'sync', text: badgeText, tooltip })
+    {
+      className: css({
+        '&:hover': {
+          background: 'transparent',
+          boxShadow: 'none',
+        },
+      }),
+    },
+    createElement(
+      Tooltip,
+      { content: tooltip, focusable: false },
+      createElement(Badge, { color: 'blue', icon: 'sync', text: badgeText })
+    )
   );
 }

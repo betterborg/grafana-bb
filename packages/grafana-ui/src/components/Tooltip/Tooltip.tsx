@@ -32,13 +32,15 @@ export interface TooltipProps {
    * Set to true if you want the tooltip to stay long enough so the user can move mouse over content to select text or click a link
    */
   interactive?: boolean;
+  /** Disable keyboard focus when the tooltip annotates non-interactive content. */
+  focusable?: boolean;
 }
 
 /**
  * https://developers.grafana.com/ui/latest/index.html?path=/docs/overlays-tooltip--docs
  */
 export const Tooltip = forwardRef<HTMLElement, TooltipProps>(
-  ({ children, theme, interactive, show, placement, content }, forwardedRef) => {
+  ({ children, theme, interactive, focusable = true, show, placement, content }, forwardedRef) => {
     const arrowRef = useRef(null);
     const [controlledVisible, setControlledVisible] = useState(show);
     const isOpen = show ?? controlledVisible;
@@ -69,7 +71,7 @@ export const Tooltip = forwardRef<HTMLElement, TooltipProps>(
       handleClose: interactive ? safePolygon() : undefined,
       move: false,
     });
-    const focus = useFocus(context);
+    const focus = useFocus(context, { enabled: focusable });
     const dismiss = useDismiss(context);
 
     const { getReferenceProps, getFloatingProps } = useInteractions([dismiss, hover, focus]);
@@ -100,7 +102,7 @@ export const Tooltip = forwardRef<HTMLElement, TooltipProps>(
       <>
         {cloneElement(children, {
           ref: handleRef,
-          tabIndex: 0, // tooltip trigger should be keyboard focusable
+          ...(focusable ? { tabIndex: 0 } : {}),
           'aria-describedby': !childHasMatchingAriaLabel && isOpen ? tooltipId : undefined,
           ...getReferenceProps(),
         })}
